@@ -35,16 +35,6 @@
     background: radial-gradient(circle at 32% 24%, #fff 40%, #e3e3e3);
     box-shadow: inset 0 0 0 1px #fff, inset 0 0 10px #0002;
   }
-  @media (max-width: 600px), (max-height: 600px) and (orientation: landscape) {
-    main { --perspective: 600px; }
-    .die { --size: clamp(50.6667px, 17.3333vmin, 120px); }
-  }
-  @media (orientation: portrait) and (max-width: 600px),
-         (orientation: portrait) and (pointer: coarse) {
-    main { --perspective: 600px; }
-    /* 遠近補正で拡大される正面も、横に9個分収まるようにする。 */
-    .die { --size: min(9.9vw, 120px); }
-  }
   .pip { width: 68%; aspect-ratio: 1; background: #141414; border-radius: 50%; }
   .one .pip { width: 100%; background: #c61625; }
   .incoming { position: fixed; inset: 0; pointer-events: none; }
@@ -291,13 +281,12 @@
   function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
-    if (width < height && (width <= 600 || navigator.maxTouchPoints > 0)) {
-      const perspective = parseFloat(getComputedStyle(stage).perspective);
-      const front = Math.max(0, Math.min(width, stage.clientWidth) / 9 - 1);
-      die.style.setProperty('--size', Math.min(120, front / (1 + front / (2 * perspective))) + 'px');
-    } else {
-      die.style.removeProperty('--size');
-    }
+    const shortSide = Math.min(width, height, stage.clientWidth, stage.clientHeight);
+    const perspective = parseFloat(getComputedStyle(stage).perspective);
+    // 正面の遠近補正を逆算し、短辺に5個分の幅を確保する。
+    const front = Math.max(0, shortSide / 5 - 1);
+    const size = Math.min(180, front / (1 + front / (2 * perspective)));
+    die.style.setProperty('--size', size + 'px');
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(width * ratio);
     canvas.height = Math.round(height * ratio);
