@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>3Dサイコロ</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html.inverted { filter: invert(1); }
+  body { background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+  canvas, main { position: fixed; inset: 0; }
+  canvas { pointer-events: none; }
+  main { display: grid; place-items: center; perspective: 900px; cursor: grab; }
+  main:active { cursor: grabbing; }
+  .die {
+    --size: clamp(76px, 26vmin, 180px);
+    --half: calc(var(--size) / 2);
+    position: relative;
+    width: var(--size);
+    height: var(--size);
+    transform-style: preserve-3d;
+    pointer-events: none;
+  }
+  .face {
+    position: absolute;
+    inset: 0;
+    transform: var(--side) translateZ(var(--half));
+    backface-visibility: hidden;
+    display: grid;
+    grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+    place-items: center;
+    padding: 15%;
+    border-radius: 6%;
+    background: radial-gradient(circle at 32% 24%, #fff 40%, #e3e3e3);
+    box-shadow: inset 0 0 0 1px #fff, inset 0 0 10px #0002;
+  }
+  .pip { width: 68%; aspect-ratio: 1; background: #141414; border-radius: 50%; }
+  .one .pip { width: 100%; background: #c61625; }
+  .incoming { position: fixed; inset: 0; pointer-events: none; }
+  .piece { position: absolute; top: 50%; left: 50%; }
+  .piece .face { transform: none; }
+  .piece.overflow .face {
+    background: radial-gradient(circle at 32% 24%, #ffc2d9, #f078a6);
+  }
+  .result {
+    position: fixed; right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom)); color: #fff;
+    font: 600 1rem system-ui, sans-serif; text-align: right;
+  }
+  .result button { padding: 10px 18px; border: 0; border-radius: 8px; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas aria-hidden="true"></canvas>
+<main aria-label="フリックまたはドラッグで回転する3Dサイコロ">
+  <div class="die" role="img" aria-label="正面の目は1"></div>
+</main>
+<div class="incoming" aria-hidden="true"></div>
+<div class="result" hidden>
+  <p role="status">ゲームオーバー</p>
+  <button type="button">リトライ</button>
+</div>
+<script>
+  const stage = document.querySelector('main');
+  const die = document.querySelector('.die');
+  const faces = [
+    [1, 'rotateY(0deg)',   [5],                   [0, 0, 1]],
+    [2, 'rotateX(90deg)',  [1, 9],                [0, -1, 0]],
+    [3, 'rotateY(90deg)',  [1, 5, 9],             [1, 0, 0]],
+    [4, 'rotateY(-90deg)', [1, 3, 7, 9],          [-1, 0, 0]],
+    [5, 'rotateX(-90deg)', [1, 3, 5, 7, 9],       [0, 1, 0]],
+    [6, 'rotateY(180deg)', [1, 3, 4, 6, 7, 9],    [0, 0, -1]],
+  ];
+  let six;
+
+  function makeFace(number, cells) {
+    const face = document.createElement('div');
+    face.className = number === 1 ? 'face one' : 'face';
+    for (const cell of cells) {
+      const pip = document.createElement('span');
+      pip.className = 'pip';
+      pip.style.gridArea = [Math.ceil(cell / 3), (cell - 1) % 3 + 1].join(' / ');
+      face.append(pip);
+    }
+    return face;
+  }
+  for (const [number, side, cells] of faces) {
+    const face = makeFace(number, cells);
+    face.style.setProperty('--side', side);
+    die.append(face);
+    if (number === 6) six = face;
+  }
+
+  const canvas = document.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const starColors = ['#a6d7ff', '#8cf5dc', '#fff0a3', '#ffba8d', '#ffa6d5', '#cbb6ff'];
+  const stars = Array.from({ length: 280 }, (_, i) => ({
+    x: Math.random(), y: Math.random(),
+    depth: i < 196 ? 0 : i < 252 ? 1 : 2,
+    opacity: 0.3 + Math.random() * 0.6,
+    color: starColors[Math.floor(Math.random() * starColors.length)],
+  }));
+  const travel = [72, 204, 426];
+  const constellations = [
+    // オリオン座。肩、三つ星、足。
+    [[-0.42,-0.47],[0.37,-0.55],[-0.18,0.05],[0,0],[0.17,-0.06],[-0.35,0.56],[0.48,0.43]],
+    // 北斗七星。柄の先からひしゃくの外周へ。
+    [[-0.78,-0.35],[-0.53,-0.24],[-0.29,-0.07],[-0.05,0.06],[0.13,0.40],[0.55,0.29],[0.60,-0.16]],
+    // カシオペア座。W字を作る5つの星。
+    [[-0.64,-0.24],[-0.39,0.22],[-0.09,-0.17],[0.24,0.16],[0.57,-0.38]],
+  ];
+  let constellation = null;
+  let constellationAt = performance.now() + 3200;
+  let constellationIndex = 0;
+  let previousSky = null;
+  let width, height;
+  let offset = [0, 0, 0, stars];
+  let warp = null;
+  let warpDistance = 0;
+  let motion = null;
+  const trailDuration = 500;
+  const trail = [];
+  let trailFrame = null;
+  const wrap = (value, size) => ((value % size) + size) % size;
+
+  function radialPosition(star, distance) {
+    const x = star.x - 0.5;
+    const y = star.y - 0.5;
+    const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
+    const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
+    return [x * next / radius, y * next / radius, next];
+  }
+
+  function starPosition(index, [x, y, distance, field]) {
+    const star = field[index];
+    const [rx, ry] = radialPosition(star, distance);
+    return [(rx + 0.5) * width + x * travel[star.depth],
+            (ry + 0.5) * height + y * travel[star.depth]];
+  }
+
+  function paintStars(state) {
+    for (const [index, star] of stars.entries()) {
+      const depth = star.depth;
+      const [x, y] = starPosition(index, state);
+      const size = 2 * (1 + depth * 0.35);
+      ctx.globalAlpha = star.opacity;
+      ctx.fillStyle = star.color;
+      ctx.fillRect(wrap(x, width), wrap(y, height),
+                   size, size);
+    }
+  }
+
+  function paintTrail(from, to, opacity) {
+    if (from[3] !== to[3]) return;
+    ctx.strokeStyle = '#c7dfff';
+    ctx.lineCap = 'round';
+    for (let depth = 0; depth < travel.length; depth++) {
+      ctx.globalAlpha = opacity * (0.35 + depth * 0.14);
+      ctx.lineWidth = 0.65 + depth * 0.45;
+      ctx.beginPath();
+      for (const star of to[3]) {
+        if (star.depth !== depth) continue;
+        const [rx, ry, radius] = radialPosition(star, to[2]);
+        const [px, py, previousRadius] = radialPosition(star, from[2]);
+        if (radius < previousRadius) continue;
+        const dx = (rx - px) * width + (to[0] - from[0]) * travel[depth];
+        const dy = (ry - py) * height + (to[1] - from[1]) * travel[depth];
+        if (dx === 0 && dy === 0) continue;
+        const x = wrap((rx + 0.5) * width + to[0] * travel[depth], width);
+        const y = wrap((ry + 0.5) * height + to[1] * travel[depth], height);
+        // 画面の端をまたぐ尾も、反対側に続けて描く。
+        for (let shiftX = Math.ceil((Math.min(0, dx) - x) / width);
+             shiftX <= Math.floor((width + Math.max(0, dx) - x) / width); shiftX++) {
+          for (let shiftY = Math.ceil((Math.min(0, dy) - y) / height);
+               shiftY <= Math.floor((height + Math.max(0, dy) - y) / height); shiftY++) {
+            const headX = x + shiftX * width;
+            const headY = y + shiftY * height;
+            ctx.moveTo(headX - dx, headY - dy);
+            ctx.lineTo(headX, headY);
+          }
+        }
+      }
+      ctx.stroke();
+    }
+  }
+
+  function drawStars(now) {
+    while (trail.length && now - trail[0].time >= trailDuration) trail.shift();
+    ctx.clearRect(0, 0, width, height);
+    trail.forEach((point, index) => {
+      const next = trail[index + 1]?.offset ?? offset;
+      paintTrail(point.offset, next, (1 - (now - point.time) / trailDuration) ** 2);
+    });
+    paintStars(offset);
+    paintConstellation(now);
+  }
+
+  function paintConstellation(now) {
+    if (!constellation && now >= constellationAt && !gameOver) {
+      constellation = {
+        points: constellations[constellationIndex],
+        x: (Math.random() < 0.5 ? -1 : 1) * 0.28,
+        y: (Math.random() < 0.5 ? -1 : 1) * 0.26,
+        scale: 1,
+        start: now,
+      };
+      constellationIndex = (constellationIndex + 1) % constellations.length;
+    }
+    const sky = previousSky;
+    previousSky = offset.slice();
+    if (!constellation) return;
+    const age = now - constellation.start;
+    if (age >= 4800) {
+      constellation = null;
+      constellationAt = now + 2200 + Math.random() * 2000;
+      return;
+    }
+    if (sky?.[3] === offset[3]) {
+      const zoom = Math.exp(offset[2] - sky[2]);
+      constellation.scale *= zoom;
+      constellation.x = constellation.x * zoom + (offset[0] - sky[0]) * travel[0] / width;
+      constellation.y = constellation.y * zoom + (offset[1] - sky[1]) * travel[0] / height;
+    }
+    const unit = Math.min(width, height) * 0.15 * constellation.scale;
+    ctx.globalAlpha = Math.max(0, Math.min(age / 650, (4800 - age) / 950, 1));
+    ctx.fillStyle = '#fff2c4';
+    for (const [x, y] of constellation.points) {
+      ctx.beginPath();
+      ctx.arc((0.5 + constellation.x) * width + x * unit,
+              (0.5 + constellation.y) * height + y * unit,
+              2.2 * Math.min(constellation.scale, 1.8), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  let sampledAt = 0;
+  let driftAt = null;
+  function updateStars(now) {
+    trailFrame = null;
+    const elapsed = driftAt === null ? 0 : Math.min(now - driftAt, 50);
+    driftAt = now;
+    const previousDistance = offset[2];
+    const warping = warp !== null;
+    if (warp) {
+      const progress = Math.max(0, Math.min((now - warp.start) / warp.duration, 1));
+      warpDistance = warp.origin + 2.2 * progress * progress * (3 - 2 * progress);
+      if (progress === 1) {
+        warp = null;
+        document.documentElement.classList.remove('inverted');
+      }
+    }
+    if (now - sampledAt >= 16 && (motion !== null || previousDistance !== warpDistance)) {
+      trail.push({ offset: offset.slice(), time: now });
+      sampledAt = now;
+    }
+    offset[2] = warpDistance;
+    if (gameOver && !warping) {
+      offset[0] -= elapsed / 20000;
+    } else if (!warping && motion === null && gesture === null) {
+      if (offset[0] !== 0 || offset[1] !== 0) rebaseStars();
+      warpDistance += elapsed / 24000;
+      offset[2] = warpDistance;
+    }
+    drawStars(now);
+    requestStars();
+  }
+
+  function requestStars() {
+    if (trailFrame === null) trailFrame = requestAnimationFrame(updateStars);
+  }
+
+  function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    drawStars(performance.now());
+  }
+  window.addEventListener('resize', resize);
+
+  let rows = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  function matrix([[a, b, c], [d, e, f], [g, h, i]]) {
+    return 'matrix3d(' + [a,d,g,0,b,e,h,0,c,f,i,0,0,0,0,1].join(',') + ')';
+  }
+
+  function rotate(dx, dy) {
+    const horizontal = Math.abs(dx) >= Math.abs(dy);
+    const direction = Math.sign(horizontal ? dx : dy);
+    const [x, y, z] = rows;
+    const scale = (row, sign) => row.map(value => value * sign);
+    // 左から画面座標系の90度回転を掛け、停止時の行列を整数で保持する。
+    const next = horizontal
+      ? [scale(z, direction), y, scale(x, -direction)]
+      : [x, scale(z, direction), scale(y, -direction)];
+    // 6が正面に来る回転では、まだ見えていないうちに目の列を縦にそろえる。
+    if (next[2][2] === -1) {
+      const twist = next[0][1] === 0 ? 0 : 90;
+      six.style.setProperty('--side', 'rotateY(180deg) rotateZ(' + twist + 'deg)');
+    }
+    const start = performance.now();
+    const origin = offset.slice();
+    const panStars = warp === null;
+    motion = requestAnimationFrame(function frame(now) {
+      const progress = Math.max(0, Math.min((now - start) / 300, 1));
+      const eased = progress * progress * (3 - 2 * progress);
+      const angle = (horizontal ? direction : -direction) * 90 * eased;
+      const axis = horizontal ? 'Y' : 'X';
+      if (panStars) {
+        offset[0] = origin[0] - (horizontal ? direction * eased : 0);
+        offset[1] = origin[1] - (horizontal ? 0 : direction * eased);
+      }
+
+      if (progress < 1) {
+        die.style.transform = 'rotate' + axis + '(' + angle + 'deg) ' + matrix(rows);
+        motion = requestAnimationFrame(frame);
+        return;
+      }
+      rows = next;
+      die.style.transform = matrix(rows);
+      const [number] = faces.find(([, , , normal]) =>
+        normal.reduce((sum, component, index) => sum + component * rows[2][index], 0) === 1);
+      die.setAttribute('aria-label', '正面の目は' + number);
+      motion = null;
+      centerNumber = number;
+      matchPieces();
+    });
+    requestStars();
+  }
+
+  const incomingLayer = document.querySelector('.incoming');
+  const result = document.querySelector('.result');
+  const retry = result.querySelector('button');
+  const directions = [[0, -1], [-1, 0], [0, 1], [1, 0]];
+  const stacks = directions.map(() => []);
+  let centerNumber = 1;
+  let nextDirection = 0;
+  let incoming = null;
+  let arrivalFrame = null;
+  let spawnTimer = null;
+  let gameOver = false;
+  let overflowPiece = null;
+
+  function pieceSize() {
+    const size = die.offsetWidth;
+    return size * 900 / (900 - size / 2);
+  }
+
+  function positionPiece(piece, distance, size) {
+    const [x, y] = directions[piece.direction];
+    piece.element.style.width = size + 'px';
+    piece.element.style.height = size + 'px';
+    piece.element.style.transform =
+      'translate(-50%, -50%) translate(' + x * distance + 'px, ' + y * distance + 'px)';
+  }
+
+  function layoutStacks() {
+    const size = pieceSize();
+    for (const stack of stacks) {
+      stack.forEach((piece, index) => positionPiece(piece, size * (index + 1), size));
+    }
+    if (overflowPiece) {
+      const [x] = directions[overflowPiece.direction];
+      const edge = (x ? width : height) / 2;
+      const distance = size * (stacks[overflowPiece.direction].length + 1);
+      // 目を読める位置まで内側に寄せ、外側の縁は画面からはみ出させる。
+      positionPiece(overflowPiece, Math.min(distance, edge - size * 0.3), size);
+    }
+  }
+
+  function rebaseStars() {
+    // 現在の見た目を保ったまま、画面中央を原点に戻す。
+    const field = stars.map((star, index) => {
+      const [x, y] = starPosition(index, offset);
+      return { ...star, x: wrap(x, width) / width, y: wrap(y, height) / height };
+    });
+    offset = [0, 0, 0, field];
+    warpDistance = 0;
+  }
+
+  function matchPieces() {
+    let matched = 0;
+    for (const stack of stacks) {
+      if (stack[0]?.number !== centerNumber) continue;
+      stack.shift().element.remove();
+      matched++;
+    }
+    if (!matched) return;
+    layoutStacks();
+    rebaseStars();
+    const duration = 440 * (matched >= 4 ? 3 : matched === 3 ? 2 : 1);
+    warp = { start: performance.now(), origin: 0, duration };
+    document.documentElement.classList.toggle('inverted', matched >= 5);
+    requestStars();
+  }
+
+  function advanceArrival(now) {
+    const size = pieceSize();
+    const stack = stacks[incoming.direction];
+    const halfScreen = (directions[incoming.direction][0] ? width : height) / 2;
+    const distance = size * (stack.length + 1);
+    if (distance + size / 2 > halfScreen) {
+      overflowPiece = incoming;
+      overflowPiece.element.classList.add('overflow');
+      incoming = null;
+      arrivalFrame = null;
+      layoutStacks();
+      gameOver = true;
+      result.hidden = false;
+      retry.focus();
+      requestStars();
+      return;
+    }
+    const progress = Math.max(0, Math.min((now - incoming.start) / 475, 1));
+    const remaining = (1 - progress) ** 2;
+    positionPiece(incoming, distance + (halfScreen + size / 2 - distance) * remaining, size);
+    if (progress < 1) {
+      arrivalFrame = requestAnimationFrame(advanceArrival);
+      return;
+    }
+    stack.push(incoming);
+    incoming = null;
+    arrivalFrame = null;
+    if (motion === null) matchPieces();
+    spawnTimer = setTimeout(spawnPiece, 1100);
+  }
+
+  function spawnPiece() {
+    spawnTimer = null;
+    const candidates = faces.filter(([number]) => number !== centerNumber);
+    const [number, , cells] = candidates[Math.floor(Math.random() * candidates.length)];
+    const element = document.createElement('div');
+    element.className = 'piece';
+    element.append(makeFace(number, cells));
+    incomingLayer.append(element);
+    incoming = { element, number, direction: nextDirection, start: performance.now() };
+    nextDirection = (nextDirection + 1) % directions.length;
+    advanceArrival(incoming.start);
+  }
+
+  let gesture = null;
+  stage.addEventListener('pointerdown', event => {
+    if (gameOver || motion !== null || gesture || !event.isPrimary || event.button !== 0) return;
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    stage.setPointerCapture(event.pointerId);
+  });
+  stage.addEventListener('pointerup', event => {
+    if (gesture?.id !== event.pointerId) return;
+    const dx = event.clientX - gesture.x;
+    const dy = event.clientY - gesture.y;
+    gesture = null;
+    if (!gameOver && Math.max(Math.abs(dx), Math.abs(dy)) >= 24) rotate(dx, dy);
+  });
+  for (const type of ['pointercancel', 'lostpointercapture']) {
+    stage.addEventListener(type, event => {
+      if (gesture?.id === event.pointerId) gesture = null;
+    });
+  }
+  for (const type of ['contextmenu', 'dragstart', 'selectstart']) {
+    stage.addEventListener(type, event => event.preventDefault());
+  }
+  window.addEventListener('wheel', event => event.preventDefault(), { passive: false });
+  window.addEventListener('resize', layoutStacks);
+  retry.addEventListener('click', () => {
+    clearTimeout(spawnTimer);
+    for (const frame of [arrivalFrame, motion, trailFrame]) {
+      if (frame !== null) cancelAnimationFrame(frame);
+    }
+    arrivalFrame = motion = trailFrame = null;
+    incoming = gesture = warp = null;
+    document.documentElement.classList.remove('inverted');
+    overflowPiece = null;
+    driftAt = null;
+    warpDistance = sampledAt = nextDirection = 0;
+    offset = [0, 0, 0, stars];
+    constellation = previousSky = null;
+    constellationAt = performance.now() + 3200;
+    constellationIndex = 0;
+    trail.length = 0;
+    for (const stack of stacks) stack.length = 0;
+    incomingLayer.replaceChildren();
+    rows = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    die.style.transform = matrix(rows);
+    centerNumber = 1;
+    die.setAttribute('aria-label', '正面の目は1');
+    gameOver = false;
+    result.hidden = true;
+    drawStars(performance.now());
+    requestStars();
+    spawnTimer = setTimeout(spawnPiece, 600);
+  });
+  resize();
+  requestStars();
+  spawnTimer = setTimeout(spawnPiece, 600);
+</script>
+</body>
+</html>
