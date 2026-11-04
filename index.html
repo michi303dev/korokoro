@@ -283,8 +283,8 @@
     height = window.innerHeight;
     const shortSide = Math.min(width, height, stage.clientWidth, stage.clientHeight);
     const perspective = parseFloat(getComputedStyle(stage).perspective);
-    // 正面の遠近補正を逆算し、短辺に5個分の幅を確保する。
-    const front = Math.max(0, shortSide / 5 - 1);
+    // 正面の遠近補正を逆算し、短辺に5.5個分の幅を確保する。
+    const front = Math.max(0, shortSide / 5.5 - 1);
     const size = Math.min(180, front / (1 + front / (2 * perspective)));
     die.style.setProperty('--size', size + 'px');
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
