@@ -42,8 +42,8 @@
   @media (orientation: portrait) and (max-width: 600px),
          (orientation: portrait) and (pointer: coarse) {
     main { --perspective: 600px; }
-    /* 遠近補正で拡大される正面の幅も、画面幅の1/5以内に収める。 */
-    .die { --size: min(18vw, clamp(50.6667px, 17.3333vmin, 120px)); }
+    /* 遠近補正で拡大される正面も、横に7個分収まるようにする。 */
+    .die { --size: min(12.8vw, 120px); }
   }
   .pip { width: 68%; aspect-ratio: 1; background: #141414; border-radius: 50%; }
   .one .pip { width: 100%; background: #c61625; }
