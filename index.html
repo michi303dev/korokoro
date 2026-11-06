@@ -19,7 +19,7 @@
   .start-credit {
     position: fixed; top: calc(50% + 10vmin + 28px); left: 50%;
     transform: translateX(-50%); margin: 0; pointer-events: none;
-    color: #aaa; font: 1rem / 1.5 system-ui, sans-serif; text-align: center;
+    color: #aaa; font: 20px / 1.5 system-ui, sans-serif; text-align: center;
   }
   main { --perspective: 900px; display: grid; place-items: center; perspective: var(--perspective); cursor: grab; }
   main:active { cursor: grabbing; }
@@ -95,7 +95,7 @@
   .countdown {
     top: 50%; left: 50%; transform: translate(-50%, -50%);
     font-size: clamp(3rem, 12vmin, 6rem);
-    text-shadow: 0 1px 10px rgba(255, 255, 255, 0.72), 0 0 24px rgba(255, 255, 255, 0.35);
+    text-shadow: 0 1px 10px rgba(255, 255, 255, 0.95), 0 0 24px rgba(255, 255, 255, 0.60);
   }
   .countdown.ready { animation: ready-in 1s ease-out; }
   @keyframes ready-in {
@@ -497,7 +497,7 @@
     piece.units = distance / size;
     piece.tail = tail;
     const [x, y] = directions[piece.direction];
-    const glow = Math.sqrt(tail);
+    const glow = tail ** 0.4;
     const tailLength = Math.min(210, size * 2.1) * glow;
     piece.element.style.setProperty('--arrival-length', tailLength + 'px');
     piece.element.style.setProperty('--arrival-start', size * 0.45 + 'px');
