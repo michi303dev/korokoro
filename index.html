@@ -11,6 +11,16 @@
   body { background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
   canvas, main { position: fixed; inset: 0; }
   canvas { pointer-events: none; }
+  .start-logo {
+    position: fixed; left: 50%; bottom: calc(50% + 10vmin + 28px);
+    width: min(72vw, 520px); height: auto; max-height: 23vh;
+    object-fit: contain; transform: translateX(-50%); pointer-events: none;
+  }
+  .start-credit {
+    position: fixed; top: calc(50% + 10vmin + 28px); left: 50%;
+    transform: translateX(-50%); margin: 0; pointer-events: none;
+    color: #aaa; font: 1rem / 1.5 system-ui, sans-serif; text-align: center;
+  }
   main { --perspective: 900px; display: grid; place-items: center; perspective: var(--perspective); cursor: grab; }
   main:active { cursor: grabbing; }
   .die {
@@ -68,9 +78,9 @@
   .inverted .clearing .face { background: rgb(29, 0, 242); }
   .result {
     pointer-events: none;
-    position: fixed; right: max(16px, env(safe-area-inset-right));
-    bottom: max(16px, env(safe-area-inset-bottom)); color: #fff;
-    font: 600 1rem system-ui, sans-serif; text-align: right;
+    position: fixed; left: max(16px, env(safe-area-inset-left));
+    top: max(16px, env(safe-area-inset-top)); color: #fff;
+    font: 600 1rem system-ui, sans-serif;
   }
   .combo, .countdown {
     position: fixed; margin: 0;
@@ -93,8 +103,8 @@
     to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
   .start-hint {
-    position: fixed; top: max(16px, env(safe-area-inset-top));
-    left: max(16px, env(safe-area-inset-left)); margin: 0;
+    position: fixed; bottom: max(16px, env(safe-area-inset-bottom));
+    right: max(16px, env(safe-area-inset-right)); margin: 0;
     color: #fff; font: 600 1rem system-ui, sans-serif; pointer-events: none;
     animation: hint-fade 1.8s ease-out infinite;
   }
@@ -109,6 +119,8 @@
 <main aria-label="フリックまたはドラッグで回転する3Dサイコロ">
   <div class="die" role="img" aria-label="正面の目は1"></div>
 </main>
+<img class="start-logo" src="logo.png" alt="Korokoro" width="2172" height="724">
+<p class="start-credit" lang="en">© 2026 michi-303<br>Made with Codex</p>
 <div class="incoming" aria-hidden="true"></div>
 <p class="combo" role="status"></p>
 <p class="start-hint" lang="en">Tap or Press Any Key</p>
@@ -401,6 +413,8 @@
   const result = document.querySelector('.result');
   let retryReady = false;
   const startHint = document.querySelector('.start-hint');
+  const startLogo = document.querySelector('.start-logo');
+  const startCredit = document.querySelector('.start-credit');
   const countdown = document.querySelector('.countdown');
   let playState = 'waiting';
   const comboLabel = document.querySelector('.combo');
@@ -662,7 +676,7 @@
     element.append(makeFace(number, cells));
     incomingLayer.append(element);
     incoming = { element, number, direction: nextDirection, start: performance.now(), duration: arrivalDuration };
-    arrivalDuration /= 1.04;
+    arrivalDuration /= 1.05;
     nextDirection = (nextDirection + 1) % directions.length;
     advanceArrival(incoming.start);
   }
@@ -670,6 +684,8 @@
   let gesture = null;
   function startCountdown() {
     playState = 'countdown';
+    startLogo.hidden = true;
+    startCredit.hidden = true;
     gesture = null;
     document.documentElement.classList.add('preplay');
     startHint.hidden = true;
