@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -418,6 +418,18 @@
     const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1);
     warp = { start: performance.now(), origin: 0, duration };
     document.documentElement.classList.toggle('inverted', combo >= 5);
+    if (combo >= 5) {
+      for (const stack of stacks) stack.length = 0;
+      incomingLayer.replaceChildren();
+      overflowPiece = null;
+      if (incoming !== null) {
+        cancelAnimationFrame(arrivalFrame);
+        arrivalFrame = null;
+        incoming = null;
+        clearTimeout(spawnTimer);
+        spawnTimer = setTimeout(spawnPiece, 1100);
+      }
+    }
     requestStars();
   }
 
