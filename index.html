@@ -1,5 +1,5 @@
 ﻿<!doctype html>
-<html lang="ja">
+<html lang="ja" class="preplay">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -39,17 +39,34 @@
   .one .pip { width: 100%; background: #c61625; }
   .incoming { position: fixed; inset: 0; pointer-events: none; }
   .piece { position: absolute; top: 50%; left: 50%; }
+  .piece::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    width: var(--arrival-length, 0px); height: 92%;
+    background:
+      linear-gradient(90deg, #fff, #79edff 55%, transparent) left 8% / 84% 3px no-repeat,
+      linear-gradient(90deg, #ffecff, #ff55ae 55%, transparent) left 27% / 65% 4px no-repeat,
+      linear-gradient(90deg, #fff 24%, #8ef6ff 65%, transparent) left 51% / 100% 9px no-repeat,
+      linear-gradient(90deg, #fff, #a28aff 60%, transparent) left 73% / 78% 4px no-repeat,
+      linear-gradient(90deg, #ffebff, #ff68bb 60%, transparent) left 93% / 56% 3px no-repeat;
+    filter: drop-shadow(0 0 3px #b9faff) drop-shadow(0 0 9px #25bfff);
+    opacity: var(--arrival-glow, 0);
+    transform-origin: left center;
+    transform: translateY(-50%) rotate(var(--arrival-angle, 0deg)) translateX(var(--arrival-start, 0px));
+  }
   .piece .face { transform: none; }
+  .replaying .face, .preplay .face {
+    background: radial-gradient(circle at 32% 24%, #aaa 40%, #858585);
+  }
   .piece.overflow .face {
     background: radial-gradient(circle at 32% 24%, #ffc2d9, #f078a6);
   }
   .clearing .face { background: rgb(226, 255, 13); }
+  .inverted .clearing .face { background: rgb(29, 0, 242); }
   .result {
     position: fixed; right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom)); color: #fff;
-    font: 600 2rem system-ui, sans-serif; text-align: right;
+    font: 600 1rem system-ui, sans-serif; text-align: right;
   }
-  .result button { padding: 20px 36px; border: 0; border-radius: 16px; font: inherit; cursor: pointer; }
   .combo, .countdown {
     position: fixed; margin: 0;
     color: rgb(255, 0, 102); text-shadow: 0 1px 5px #000, 0 0 12px #000;
@@ -63,6 +80,7 @@
   .countdown {
     top: 50%; left: 50%; transform: translate(-50%, -50%);
     font-size: clamp(3rem, 12vmin, 6rem);
+    text-shadow: 0 1px 10px rgba(255, 255, 255, 0.72), 0 0 24px rgba(255, 255, 255, 0.35);
   }
   .countdown.ready { animation: ready-in 1s ease-out; }
   @keyframes ready-in {
@@ -92,7 +110,6 @@
 <p class="countdown" role="status" lang="en" hidden></p>
 <div class="result" hidden>
   <p role="status" lang="en">Game Over</p>
-  <button type="button" lang="en" hidden>Retry</button>
 </div>
 <script>
   const stage = document.querySelector('main');
@@ -129,8 +146,9 @@
   const ctx = canvas.getContext('2d');
   const starColors = ['#a6d7ff', '#8cf5dc', '#fff0a3', '#ffba8d', '#ffa6d5', '#cbb6ff'];
   const stars = Array.from({ length: 280 }, (_, i) => ({
-    x: Math.random(), y: Math.random(),
-    depth: i < 196 ? 0 : i < 252 ? 1 : 2,
+    x: (i % 20 + 0.15 + Math.random() * 0.7) / 20,
+    y: (Math.floor(i / 20) + 0.15 + Math.random() * 0.7) / 14,
+    depth: (i * 37) % 280 < 196 ? 0 : (i * 37) % 280 < 252 ? 1 : 2,
     opacity: 0.3 + Math.random() * 0.6,
     color: starColors[Math.floor(Math.random() * starColors.length)],
   }));
@@ -161,7 +179,8 @@
     const x = star.x - 0.5;
     const y = star.y - 0.5;
     const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
-    const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
+    // 半径ではなく面積に比例する値を循環させ、中央への密集を防ぐ。
+    const next = Math.sqrt(wrap(radius * radius + distance * (0.4 + star.depth * 0.19), 1));
     return [x * next / radius, y * next / radius, next];
   }
 
@@ -375,7 +394,7 @@
 
   const incomingLayer = document.querySelector('.incoming');
   const result = document.querySelector('.result');
-  const retry = result.querySelector('button');
+  let retryReady = false;
   const startHint = document.querySelector('.start-hint');
   const countdown = document.querySelector('.countdown');
   let playState = 'waiting';
@@ -385,6 +404,7 @@
   const stacks = directions.map(() => []);
   let centerNumber = 1;
   let nextDirection = 0;
+  let arrivalDuration = 475;
   let incoming = null;
   let arrivalFrame = null;
   let spawnTimer = null;
@@ -410,6 +430,7 @@
       pieces: pieces.map(piece => ({
         piece,
         units: piece.units,
+        tail: piece.tail,
         overflow: piece === overflowPiece,
         clearing: piece.element.classList.contains('clearing'),
       })),
@@ -431,13 +452,13 @@
     }
     if (frame === replay.shown) return;
     const size = pieceSize();
-    for (const { piece, units, overflow, clearing } of frame.pieces) {
+    for (const { piece, units, tail, overflow, clearing } of frame.pieces) {
       piece.element.classList.toggle('overflow', overflow);
       piece.element.classList.toggle('clearing', clearing);
       const [x] = directions[piece.direction];
       const edge = (x ? width : height) / 2;
       const distance = overflow ? Math.min(units * size, edge - size * 0.3) : units * size;
-      positionPiece(piece, distance, size);
+      positionPiece(piece, distance, size, tail);
     }
     incomingLayer.replaceChildren(...frame.pieces.map(({ piece }) => piece.element));
     die.style.transform = frame.rotation;
@@ -453,9 +474,16 @@
     return size * perspective / (perspective - size / 2);
   }
 
-  function positionPiece(piece, distance, size) {
+  function positionPiece(piece, distance, size, tail = 0) {
     piece.units = distance / size;
+    piece.tail = tail;
     const [x, y] = directions[piece.direction];
+    const glow = Math.sqrt(tail);
+    const tailLength = Math.min(210, size * 2.1) * glow;
+    piece.element.style.setProperty('--arrival-length', tailLength + 'px');
+    piece.element.style.setProperty('--arrival-start', size * 0.45 + 'px');
+    piece.element.style.setProperty('--arrival-angle', Math.atan2(y, x) + 'rad');
+    piece.element.style.setProperty('--arrival-glow', glow);
     piece.element.style.width = size + 'px';
     piece.element.style.height = size + 'px';
     piece.element.style.transform =
@@ -506,13 +534,14 @@
     }
     die.classList.add('clearing');
     for (const piece of highlighted) piece.element.classList.add('clearing');
+    startWarp(combo, started);
     recordBoard(started);
     setTimeout(() => {
       die.classList.remove('clearing');
       stacks.forEach((stack, index) => {
         for (const piece of stack.splice(0, matches[index].length)) piece.element.remove();
       });
-      startWarp(combo, fullClear);
+      finishClear(combo, fullClear);
       compactStacks(started);
     }, clearPause);
     clearPause = Math.max(10, clearPause - 10);
@@ -547,16 +576,20 @@
     });
   }
 
-  function startWarp(combo, fullClear) {
+  function startWarp(combo, started) {
     rebaseStars();
+    const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1);
+    warp = { start: started, origin: 0, duration };
+    document.documentElement.classList.toggle('inverted', combo >= 5);
+    requestStars();
+  }
+
+  function finishClear(combo, fullClear) {
     if (combo >= 3) {
       clearTimeout(comboTimer);
       comboLabel.textContent = 'NICE ' + combo + ' combo!';
       comboTimer = setTimeout(() => { comboLabel.textContent = ''; }, 1500);
     }
-    const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1);
-    warp = { start: performance.now(), origin: 0, duration };
-    document.documentElement.classList.toggle('inverted', combo >= 5);
     if (fullClear) {
       for (const stack of stacks) stack.length = 0;
       incomingLayer.replaceChildren();
@@ -569,7 +602,6 @@
         spawnTimer = setTimeout(spawnPiece, 1100);
       }
     }
-    requestStars();
   }
 
   function advanceArrival(now) {
@@ -589,18 +621,18 @@
       motion = null;
       clearTimeout(comboTimer);
       gameOver = true;
+      document.documentElement.classList.add('replaying');
       result.hidden = false;
       setTimeout(() => {
-        retry.hidden = false;
+        retryReady = true;
         startHint.hidden = false;
-        retry.focus();
       }, 3000);
       requestStars();
       return;
     }
-    const progress = Math.max(0, Math.min((now - incoming.start) / 475, 1));
+    const progress = Math.max(0, Math.min((now - incoming.start) / incoming.duration, 1));
     const remaining = (1 - progress) ** 2;
-    positionPiece(incoming, distance + (halfScreen + size / 2 - distance) * remaining, size);
+    positionPiece(incoming, distance + (halfScreen + size / 2 - distance) * remaining, size, 1 - progress);
     if (progress < 1) {
       arrivalFrame = requestAnimationFrame(advanceArrival);
       return;
@@ -624,7 +656,8 @@
     element.className = 'piece';
     element.append(makeFace(number, cells));
     incomingLayer.append(element);
-    incoming = { element, number, direction: nextDirection, start: performance.now() };
+    incoming = { element, number, direction: nextDirection, start: performance.now(), duration: arrivalDuration };
+    arrivalDuration /= 1.04;
     nextDirection = (nextDirection + 1) % directions.length;
     advanceArrival(incoming.start);
   }
@@ -632,6 +665,7 @@
   let gesture = null;
   function startCountdown() {
     playState = 'countdown';
+    document.documentElement.classList.add('preplay');
     startHint.hidden = true;
     countdown.hidden = false;
     countdown.classList.add('ready');
@@ -643,17 +677,18 @@
         countdown.hidden = true;
         countdown.textContent = '';
         playState = 'playing';
+        document.documentElement.classList.remove('preplay');
         spawnPiece();
       }, 500);
     }, 2000);
   }
 
   function activateStart() {
-    if (gameOver && !retry.hidden) retry.click();
+    if (gameOver && retryReady) retryGame();
     else if (playState === 'waiting') startCountdown();
   }
 
-  stage.addEventListener('click', activateStart);
+  window.addEventListener('click', activateStart);
   const arrowDirections = new Map([
     ['ArrowUp', [0, -1]],
     ['ArrowDown', [0, 1]],
@@ -698,9 +733,8 @@
     if (replay) replay.shown = null;
     else layoutStacks();
   });
-  retry.addEventListener('click', () => {
-    if (!gameOver || retry.hidden) return;
-    retry.hidden = true;
+  function retryGame() {
+    retryReady = false;
     clearTimeout(spawnTimer);
     clearTimeout(comboTimer);
     comboLabel.textContent = '';
@@ -709,7 +743,7 @@
     }
     arrivalFrame = motion = trailFrame = null;
     incoming = gesture = warp = null;
-    document.documentElement.classList.remove('inverted');
+    document.documentElement.classList.remove('inverted', 'replaying');
     overflowPiece = null;
     replay = null;
     dropHistory.length = 0;
@@ -717,6 +751,7 @@
     die.classList.remove('clearing');
     driftAt = null;
     warpDistance = sampledAt = nextDirection = 0;
+    arrivalDuration = 475;
     offset = [0, 0, 0, stars];
     constellation = previousSky = null;
     constellationAt = performance.now() + 3200;
@@ -733,7 +768,7 @@
     drawStars(performance.now());
     requestStars();
     startCountdown();
-  });
+  }
   resize();
   requestStars();
 </script>
