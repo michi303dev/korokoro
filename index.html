@@ -43,18 +43,41 @@
   .piece.overflow .face {
     background: radial-gradient(circle at 32% 24%, #ffc2d9, #f078a6);
   }
+  .clearing .face { background: rgb(226, 255, 13); }
   .result {
     position: fixed; right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom)); color: #fff;
-    font: 600 1rem system-ui, sans-serif; text-align: right;
+    font: 600 2rem system-ui, sans-serif; text-align: right;
   }
-  .result button { padding: 10px 18px; border: 0; border-radius: 8px; font: inherit; cursor: pointer; }
-  .combo {
-    position: fixed; left: max(16px, env(safe-area-inset-left));
-    bottom: max(16px, env(safe-area-inset-bottom)); margin: 0;
+  .result button { padding: 20px 36px; border: 0; border-radius: 16px; font: inherit; cursor: pointer; }
+  .combo, .countdown {
+    position: fixed; margin: 0;
     color: rgb(255, 0, 102); text-shadow: 0 1px 5px #000, 0 0 12px #000;
     font: italic 800 clamp(1.5rem, 6vmin, 3rem) system-ui, sans-serif;
     pointer-events: none;
+  }
+  .combo {
+    left: max(16px, env(safe-area-inset-left));
+    bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .countdown {
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: clamp(3rem, 12vmin, 6rem);
+  }
+  .countdown.ready { animation: ready-in 1s ease-out; }
+  @keyframes ready-in {
+    from { transform: translate(-50%, -50%) scale(8); opacity: 0; }
+    to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  }
+  .start-hint {
+    position: fixed; top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left)); margin: 0;
+    color: #fff; font: 600 1rem system-ui, sans-serif; pointer-events: none;
+    animation: hint-fade 1.8s ease-out infinite;
+  }
+  @keyframes hint-fade {
+    0%, 20% { opacity: 1; }
+    80%, 100% { opacity: 0; }
   }
 </style>
 </head>
@@ -65,9 +88,11 @@
 </main>
 <div class="incoming" aria-hidden="true"></div>
 <p class="combo" role="status"></p>
+<p class="start-hint" lang="en">Tap or Press Any Key</p>
+<p class="countdown" role="status" lang="en" hidden></p>
 <div class="result" hidden>
-  <p role="status">ゲームオーバー</p>
-  <button type="button">リトライ</button>
+  <p role="status" lang="en">Game Over</p>
+  <button type="button" lang="en" hidden>Retry</button>
 </div>
 <script>
   const stage = document.querySelector('main');
@@ -75,8 +100,8 @@
   const faces = [
     [1, 'rotateY(0deg)',   [5],                   [0, 0, 1]],
     [2, 'rotateX(90deg)',  [1, 9],                [0, -1, 0]],
-    [3, 'rotateY(90deg)',  [1, 5, 9],             [1, 0, 0]],
-    [4, 'rotateY(-90deg)', [1, 3, 7, 9],          [-1, 0, 0]],
+    [3, 'rotateY(-90deg)', [1, 5, 9],             [-1, 0, 0]],
+    [4, 'rotateY(90deg)',  [1, 3, 7, 9],          [1, 0, 0]],
     [5, 'rotateX(-90deg)', [1, 3, 5, 7, 9],       [0, 1, 0]],
     [6, 'rotateY(180deg)', [1, 3, 4, 6, 7, 9],    [0, 0, -1]],
   ];
@@ -271,6 +296,8 @@
       offset[2] = warpDistance;
     }
     drawStars(now);
+    if (gameOver) playReplay(now);
+    else if (dropHistory.length && now - recordedAt >= 33) recordBoard(now);
     requestStars();
   }
 
@@ -349,6 +376,9 @@
   const incomingLayer = document.querySelector('.incoming');
   const result = document.querySelector('.result');
   const retry = result.querySelector('button');
+  const startHint = document.querySelector('.start-hint');
+  const countdown = document.querySelector('.countdown');
+  let playState = 'waiting';
   const comboLabel = document.querySelector('.combo');
   let comboTimer = null;
   const directions = [[0, -1], [-1, 0], [0, 1], [1, 0]];
@@ -360,6 +390,62 @@
   let spawnTimer = null;
   let gameOver = false;
   let overflowPiece = null;
+  const dropHistory = [];
+  const replayHold = 5000;
+  let recordedAt = 0;
+  let replay = null;
+  let clearPause = 500;
+  let clearing = false;
+
+  function recordBoard(now) {
+    const pieces = stacks.flat();
+    if (incoming) pieces.push(incoming);
+    if (overflowPiece) pieces.push(overflowPiece);
+    dropHistory[dropHistory.length - 1].push({
+      time: now,
+      rotation: die.style.transform,
+      centerClearing: die.classList.contains('clearing'),
+      sixSide: six.style.getPropertyValue('--side'),
+      combo: comboLabel.textContent,
+      pieces: pieces.map(piece => ({
+        piece,
+        units: piece.units,
+        overflow: piece === overflowPiece,
+        clearing: piece.element.classList.contains('clearing'),
+      })),
+    });
+    recordedAt = now;
+  }
+
+  function playReplay(now) {
+    const { frames, start } = replay;
+    const first = frames[0];
+    const last = frames[frames.length - 1];
+    const elapsed = Math.max(0, now - start) % (replayHold + last.time - first.time);
+    let frame = last;
+    if (elapsed >= replayHold) {
+      const time = first.time + elapsed - replayHold;
+      let index = frames.length - 1;
+      while (frames[index].time > time) index--;
+      frame = frames[index];
+    }
+    if (frame === replay.shown) return;
+    const size = pieceSize();
+    for (const { piece, units, overflow, clearing } of frame.pieces) {
+      piece.element.classList.toggle('overflow', overflow);
+      piece.element.classList.toggle('clearing', clearing);
+      const [x] = directions[piece.direction];
+      const edge = (x ? width : height) / 2;
+      const distance = overflow ? Math.min(units * size, edge - size * 0.3) : units * size;
+      positionPiece(piece, distance, size);
+    }
+    incomingLayer.replaceChildren(...frame.pieces.map(({ piece }) => piece.element));
+    die.style.transform = frame.rotation;
+    die.classList.toggle('clearing', frame.centerClearing);
+    six.style.setProperty('--side', frame.sixSide);
+    comboLabel.textContent = frame.combo;
+    replay.shown = frame;
+  }
 
   function pieceSize() {
     const size = parseFloat(getComputedStyle(die).width);
@@ -368,6 +454,7 @@
   }
 
   function positionPiece(piece, distance, size) {
+    piece.units = distance / size;
     const [x, y] = directions[piece.direction];
     piece.element.style.width = size + 'px';
     piece.element.style.height = size + 'px';
@@ -400,16 +487,68 @@
   }
 
   function matchPieces() {
-    let matched = 0;
-    for (const stack of stacks) {
-      if (stack[0]?.number !== centerNumber) continue;
-      stack.shift().element.remove();
-      matched++;
+    const matches = stacks.map(stack => {
+      const firstDifferent = stack.findIndex(piece => piece.number !== centerNumber);
+      return stack.slice(0, firstDifferent === -1 ? stack.length : firstDifferent);
+    });
+    const matched = matches.flat();
+    if (!matched.length) return;
+    const combo = matched.length + 1;
+    const fullClear = matches.every(line => line.length > 0);
+    const highlighted = fullClear ? stacks.flat() : matched;
+    if (fullClear && incoming) highlighted.push(incoming);
+    const started = performance.now();
+    clearing = true;
+    gesture = null;
+    if (arrivalFrame !== null) {
+      cancelAnimationFrame(arrivalFrame);
+      arrivalFrame = null;
     }
-    if (!matched) return;
-    layoutStacks();
+    die.classList.add('clearing');
+    for (const piece of highlighted) piece.element.classList.add('clearing');
+    recordBoard(started);
+    setTimeout(() => {
+      die.classList.remove('clearing');
+      stacks.forEach((stack, index) => {
+        for (const piece of stack.splice(0, matches[index].length)) piece.element.remove();
+      });
+      startWarp(combo, fullClear);
+      compactStacks(started);
+    }, clearPause);
+    clearPause = Math.max(10, clearPause - 10);
+  }
+
+  function compactStacks(pausedAt) {
+    const moves = stacks.flatMap(stack => stack.map((piece, index) =>
+      ({ piece, from: piece.units, to: index + 1 })).filter(move => move.from !== move.to));
+    const start = performance.now();
+    recordBoard(start);
+    function resume(now) {
+      clearing = false;
+      if (incoming) {
+        incoming.start += now - pausedAt;
+        arrivalFrame = requestAnimationFrame(advanceArrival);
+      } else if (spawnTimer === null) {
+        spawnTimer = setTimeout(spawnPiece, 0);
+      }
+    }
+    if (!moves.length) {
+      resume(start);
+      return;
+    }
+    requestAnimationFrame(function slide(now) {
+      const progress = Math.max(0, Math.min((now - start) / 90, 1));
+      const size = pieceSize();
+      for (const { piece, from, to } of moves) {
+        positionPiece(piece, (from + (to - from) * progress) * size, size);
+      }
+      if (progress < 1) requestAnimationFrame(slide);
+      else resume(now);
+    });
+  }
+
+  function startWarp(combo, fullClear) {
     rebaseStars();
-    const combo = matched + 1;
     if (combo >= 3) {
       clearTimeout(comboTimer);
       comboLabel.textContent = 'NICE ' + combo + ' combo!';
@@ -418,7 +557,7 @@
     const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1);
     warp = { start: performance.now(), origin: 0, duration };
     document.documentElement.classList.toggle('inverted', combo >= 5);
-    if (combo >= 5) {
+    if (fullClear) {
       for (const stack of stacks) stack.length = 0;
       incomingLayer.replaceChildren();
       overflowPiece = null;
@@ -444,9 +583,18 @@
       incoming = null;
       arrivalFrame = null;
       layoutStacks();
+      recordBoard(now);
+      replay = { frames: dropHistory.flat(), start: now, shown: null };
+      if (motion !== null) cancelAnimationFrame(motion);
+      motion = null;
+      clearTimeout(comboTimer);
       gameOver = true;
       result.hidden = false;
-      retry.focus();
+      setTimeout(() => {
+        retry.hidden = false;
+        startHint.hidden = false;
+        retry.focus();
+      }, 3000);
       requestStars();
       return;
     }
@@ -466,6 +614,10 @@
 
   function spawnPiece() {
     spawnTimer = null;
+    if (clearing) return;
+    dropHistory.push([]);
+    if (dropHistory.length > 8) dropHistory.shift();
+    recordBoard(performance.now());
     const candidates = faces.filter(([number]) => number !== centerNumber);
     const [number, , cells] = candidates[Math.floor(Math.random() * candidates.length)];
     const element = document.createElement('div');
@@ -478,8 +630,51 @@
   }
 
   let gesture = null;
+  function startCountdown() {
+    playState = 'countdown';
+    startHint.hidden = true;
+    countdown.hidden = false;
+    countdown.classList.add('ready');
+    countdown.textContent = 'Ready';
+    setTimeout(() => {
+      countdown.classList.remove('ready');
+      countdown.textContent = 'GO!';
+      setTimeout(() => {
+        countdown.hidden = true;
+        countdown.textContent = '';
+        playState = 'playing';
+        spawnPiece();
+      }, 500);
+    }, 2000);
+  }
+
+  function activateStart() {
+    if (gameOver && !retry.hidden) retry.click();
+    else if (playState === 'waiting') startCountdown();
+  }
+
+  stage.addEventListener('click', activateStart);
+  const arrowDirections = new Map([
+    ['ArrowUp', [0, -1]],
+    ['ArrowDown', [0, 1]],
+    ['ArrowLeft', [-1, 0]],
+    ['ArrowRight', [1, 0]],
+  ]);
+  window.addEventListener('keydown', event => {
+    const direction = arrowDirections.get(event.key);
+    if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+    if (gameOver || playState !== 'playing') {
+      if (['Alt', 'Control', 'Meta', 'Shift', 'Tab'].includes(event.key)) return;
+      event.preventDefault();
+      if (!event.repeat) activateStart();
+      return;
+    }
+    if (!direction) return;
+    event.preventDefault();
+    if (!event.repeat && !clearing && motion === null && gesture === null) rotate(...direction);
+  });
   stage.addEventListener('pointerdown', event => {
-    if (gameOver || motion !== null || gesture || !event.isPrimary || event.button !== 0) return;
+    if (playState !== 'playing' || gameOver || clearing || motion !== null || gesture || !event.isPrimary || event.button !== 0) return;
     gesture = { id: event.pointerId, x: event.clientX, y: event.clientY };
     stage.setPointerCapture(event.pointerId);
   });
@@ -499,8 +694,13 @@
     stage.addEventListener(type, event => event.preventDefault());
   }
   window.addEventListener('wheel', event => event.preventDefault(), { passive: false });
-  window.addEventListener('resize', layoutStacks);
+  window.addEventListener('resize', () => {
+    if (replay) replay.shown = null;
+    else layoutStacks();
+  });
   retry.addEventListener('click', () => {
+    if (!gameOver || retry.hidden) return;
+    retry.hidden = true;
     clearTimeout(spawnTimer);
     clearTimeout(comboTimer);
     comboLabel.textContent = '';
@@ -511,6 +711,10 @@
     incoming = gesture = warp = null;
     document.documentElement.classList.remove('inverted');
     overflowPiece = null;
+    replay = null;
+    dropHistory.length = 0;
+    clearPause = 500;
+    die.classList.remove('clearing');
     driftAt = null;
     warpDistance = sampledAt = nextDirection = 0;
     offset = [0, 0, 0, stars];
@@ -528,11 +732,10 @@
     result.hidden = true;
     drawStars(performance.now());
     requestStars();
-    spawnTimer = setTimeout(spawnPiece, 600);
+    startCountdown();
   });
   resize();
   requestStars();
-  spawnTimer = setTimeout(spawnPiece, 600);
 </script>
 </body>
 </html>
