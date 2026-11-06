@@ -63,6 +63,7 @@
   .clearing .face { background: rgb(226, 255, 13); }
   .inverted .clearing .face { background: rgb(29, 0, 242); }
   .result {
+    pointer-events: none;
     position: fixed; right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom)); color: #fff;
     font: 600 1rem system-ui, sans-serif; text-align: right;
@@ -665,6 +666,7 @@
   let gesture = null;
   function startCountdown() {
     playState = 'countdown';
+    gesture = null;
     document.documentElement.classList.add('preplay');
     startHint.hidden = true;
     countdown.hidden = false;
@@ -688,7 +690,6 @@
     else if (playState === 'waiting') startCountdown();
   }
 
-  window.addEventListener('click', activateStart);
   const arrowDirections = new Map([
     ['ArrowUp', [0, -1]],
     ['ArrowDown', [0, 1]],
@@ -709,16 +710,24 @@
     if (!event.repeat && !clearing && motion === null && gesture === null) rotate(...direction);
   });
   stage.addEventListener('pointerdown', event => {
-    if (playState !== 'playing' || gameOver || clearing || motion !== null || gesture || !event.isPrimary || event.button !== 0) return;
-    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    if (gesture || !event.isPrimary || event.button !== 0) return;
+    const starting = playState === 'waiting' || (gameOver && retryReady);
+    if (!starting && (playState !== 'playing' || gameOver || clearing || motion !== null)) return;
+    gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, starting };
     stage.setPointerCapture(event.pointerId);
   });
   stage.addEventListener('pointerup', event => {
     if (gesture?.id !== event.pointerId) return;
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
+    const starting = gesture.starting;
     gesture = null;
-    if (!gameOver && Math.max(Math.abs(dx), Math.abs(dy)) >= 24) rotate(dx, dy);
+    const distance = Math.max(Math.abs(dx), Math.abs(dy));
+    if (starting) {
+      if (distance < 24) activateStart();
+    } else if (!gameOver && distance >= 24) {
+      rotate(dx, dy);
+    }
   });
   for (const type of ['pointercancel', 'lostpointercapture']) {
     stage.addEventListener(type, event => {
