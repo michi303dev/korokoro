@@ -2,24 +2,40 @@
 <html lang="ja" class="preplay">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>3Dサイコロ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="サイコロをフリックで回し、迫るサイコロと目をそろえるアクションパズル。スマホでもPCでもブラウザで遊べます。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Korokoro">
+<meta property="og:description" content="フリックでサイコロを回して、迫るサイコロと目をそろえよう。">
+<title>Korokoro | サイコロアクションパズル</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  :root { --board-height: 100vh; }
+  @supports (height: 100dvh) { :root { --board-height: 100dvh; } }
   html.inverted { filter: invert(1); }
   body { background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
-  canvas, main { position: fixed; inset: 0; }
+  canvas, main, .incoming { position: fixed; inset: 0 0 auto; height: var(--board-height); }
   canvas { pointer-events: none; }
   .start-logo {
-    position: fixed; left: 50%; bottom: calc(50% + 10vmin + 28px);
+    position: fixed; left: 50%; top: calc(var(--board-height) / 2 - 10vmin - 28px);
     width: min(72vw, 520px); height: auto; max-height: 23vh;
-    object-fit: contain; transform: translateX(-50%); pointer-events: none;
+    object-fit: contain; transform: translate(-50%, -100%); pointer-events: none;
   }
   .start-credit {
-    position: fixed; top: calc(50% + 10vmin + 28px); left: 50%;
+    position: fixed; top: calc(var(--board-height) / 2 + 10vmin + 28px); left: 50%;
     transform: translateX(-50%); margin: 0; pointer-events: none;
     color: #aaa; font: 20px / 1.5 system-ui, sans-serif; text-align: center;
+  }
+  .start-rules {
+    position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%); width: min(88vw, 32rem); margin: 0;
+    color: #ddd; font: 0.8125rem / 1.5 system-ui, sans-serif;
+    text-align: center; pointer-events: none;
+  }
+  @media (max-height: 420px) {
+    .start-credit { font-size: 0.75rem; }
   }
   main { --perspective: 900px; display: grid; place-items: center; perspective: var(--perspective); cursor: grab; }
   main:active { cursor: grabbing; }
@@ -47,7 +63,7 @@
   }
   .pip { width: 68%; aspect-ratio: 1; background: #141414; border-radius: 50%; }
   .one .pip { width: 100%; background: #c61625; }
-  .incoming { position: fixed; inset: 0; pointer-events: none; }
+  .incoming { pointer-events: none; }
   .piece { position: absolute; top: 50%; left: 50%; }
   .piece::before {
     content: ""; position: absolute; top: 50%; left: 50%;
@@ -93,7 +109,7 @@
     bottom: max(16px, env(safe-area-inset-bottom));
   }
   .countdown {
-    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    top: calc(var(--board-height) / 2); left: 50%; transform: translate(-50%, -50%);
     font-size: clamp(3rem, 12vmin, 6rem);
     text-shadow: 0 1px 19.5px #fff, 0 0 46.8px rgba(255, 255, 255, 0.72);
   }
@@ -120,6 +136,7 @@
   <div class="die" role="img" aria-label="正面の目は1"></div>
 </main>
 <img class="start-logo" src="logo.png" alt="Korokoro" width="2172" height="724">
+<p class="start-rules">フリック・矢印キーでサイコロを回し、同じ目をそろえよう。</p>
 <p class="start-credit" lang="en">© 2026 michi-303<br>Made with Codex</p>
 <div class="incoming" aria-hidden="true"></div>
 <p class="combo" role="status"></p>
@@ -342,9 +359,9 @@
   }
 
   function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
-    const shortSide = Math.min(width, height, stage.clientWidth, stage.clientHeight);
+    width = stage.clientWidth;
+    height = stage.clientHeight;
+    const shortSide = Math.min(width, height);
     const perspective = parseFloat(getComputedStyle(stage).perspective);
     // 正面の遠近補正を逆算し、短辺に5.5個分の幅を確保する。
     const front = Math.max(0, shortSide / 5.5 - 1);
@@ -358,7 +375,6 @@
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     drawStars(performance.now());
   }
-  window.addEventListener('resize', resize);
 
   let rows = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
   function matrix([[a, b, c], [d, e, f], [g, h, i]]) {
@@ -414,6 +430,7 @@
   let retryReady = false;
   const startHint = document.querySelector('.start-hint');
   const startLogo = document.querySelector('.start-logo');
+  const startRules = document.querySelector('.start-rules');
   const startCredit = document.querySelector('.start-credit');
   const countdown = document.querySelector('.countdown');
   let playState = 'waiting';
@@ -685,6 +702,7 @@
   function startCountdown() {
     playState = 'countdown';
     startLogo.hidden = true;
+    startRules.hidden = true;
     startCredit.hidden = true;
     gesture = null;
     document.documentElement.classList.add('preplay');
@@ -758,10 +776,14 @@
     stage.addEventListener(type, event => event.preventDefault());
   }
   window.addEventListener('wheel', event => event.preventDefault(), { passive: false });
-  window.addEventListener('resize', () => {
+  function resizeBoard() {
+    if (width === stage.clientWidth && height === stage.clientHeight) return;
+    resize();
     if (replay) replay.shown = null;
     else layoutStacks();
-  });
+  }
+  window.addEventListener('resize', resizeBoard);
+  new ResizeObserver(resizeBoard).observe(stage);
   function retryGame() {
     retryReady = false;
     clearTimeout(spawnTimer);
