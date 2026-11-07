@@ -567,7 +567,7 @@
     }
     die.classList.add('clearing');
     for (const piece of highlighted) piece.element.classList.add('clearing');
-    startWarp(combo, started);
+    startWarp(combo, started, fullClear);
     recordBoard(started);
     setTimeout(() => {
       die.classList.remove('clearing');
@@ -609,9 +609,9 @@
     });
   }
 
-  function startWarp(combo, started) {
+  function startWarp(combo, started, fullClear) {
     rebaseStars();
-    const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1);
+    const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1) * (fullClear ? 2 : 1);
     warp = { start: started, origin: 0, duration };
     document.documentElement.classList.toggle('inverted', combo >= 5);
     requestStars();
