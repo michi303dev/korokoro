@@ -735,6 +735,10 @@
   let gesture = null;
   function startCountdown() {
     if (playState === 'waiting') rebaseStars();
+    // Keep 1 facing forward while choosing one of its four surrounding layouts.
+    const [cos, sin] = [[1, 0], [0, 1], [-1, 0], [0, -1]][Math.floor(Math.random() * 4)];
+    rows = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]];
+    die.style.transform = matrix(rows);
     playState = 'countdown';
     startLogo.hidden = true;
     startCredit.hidden = true;
