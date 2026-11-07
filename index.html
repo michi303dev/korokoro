@@ -210,6 +210,12 @@
     const x = star.x - 0.5;
     const y = star.y - 0.5;
     const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
+    if (playState === 'waiting') {
+      const edgeDistance = Math.hypot(x * width, y * height) / radius;
+      const speed = [4, 10, 20][star.depth];
+      const next = wrap(radius + distance * 24 * speed / edgeDistance, 1);
+      return [x * next / radius, y * next / radius, next];
+    }
     // 半径ではなく面積に比例する値を循環させ、中央への密集を防ぐ。
     const next = Math.sqrt(wrap(radius * radius + distance * (0.4 + star.depth * 0.19), 1));
     return [x * next / radius, y * next / radius, next];
@@ -698,6 +704,7 @@
 
   let gesture = null;
   function startCountdown() {
+    if (playState === 'waiting') rebaseStars();
     playState = 'countdown';
     startLogo.hidden = true;
     startCredit.hidden = true;
