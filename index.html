@@ -111,13 +111,10 @@
     font-size: clamp(3rem, 12vmin, 6rem);
     /* Keep italic glyph overhangs inside the text-clipped background. */
     padding: 0.1em 0.25em;
-    background: linear-gradient(90deg, #FF00CC, #00F0FF);
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    -webkit-text-stroke: 1px #070B12;
-    text-shadow: none;
-    filter: drop-shadow(0 0 8px #00E5FF);
+    color: #FFFF00;
+    -webkit-text-stroke: 0;
+    text-shadow: 2px 2px 0 #000, -2px -2px 0 #000,
+                 2px -2px 0 #000, -2px 2px 0 #000;
   }
   .countdown.ready { animation: ready-in 1s ease-out; }
   @keyframes ready-in {
@@ -740,6 +737,17 @@
     countdown.hidden = false;
     countdown.classList.add('ready');
     countdown.textContent = 'Ready';
+    const rotationDuration = 2400;
+    const readyDuration = rotationDuration + 800;
+    const goDuration = 500;
+    const startingRotation = matrix(rows);
+    // Reveal the side faces and return to the exact gameplay orientation during Ready.
+    die.animate([
+      { transform: 'rotateY(0deg) ' + startingRotation, offset: 0, easing: 'ease-in-out' },
+      { transform: 'rotateY(360deg) ' + startingRotation,
+        offset: rotationDuration / (readyDuration + goDuration) },
+      { transform: 'rotateY(360deg) ' + startingRotation, offset: 1 },
+    ], { duration: readyDuration + goDuration });
     setTimeout(() => {
       countdown.classList.remove('ready');
       countdown.textContent = 'GO!';
@@ -749,8 +757,8 @@
         playState = 'playing';
         document.documentElement.classList.remove('preplay');
         spawnPiece();
-      }, 500);
-    }, 2000);
+      }, goDuration);
+    }, readyDuration);
   }
 
   function activateStart() {
