@@ -109,7 +109,15 @@
   .countdown {
     top: calc(var(--board-height) / 2); left: 50%; transform: translate(-50%, -50%);
     font-size: clamp(3rem, 12vmin, 6rem);
-    text-shadow: 0 1px 29.25px #fff, 0 0 70.2px rgba(255, 255, 255, 0.72);
+    /* Keep italic glyph overhangs inside the text-clipped background. */
+    padding: 0.1em 0.25em;
+    background: linear-gradient(90deg, #FF00CC, #00F0FF);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-stroke: 1px #070B12;
+    text-shadow: none;
+    filter: drop-shadow(0 0 8px #00E5FF);
   }
   .countdown.ready { animation: ready-in 1s ease-out; }
   @keyframes ready-in {
