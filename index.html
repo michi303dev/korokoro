@@ -24,15 +24,9 @@
     object-fit: contain; transform: translate(-50%, -100%); pointer-events: none;
   }
   .start-credit {
-    position: fixed; top: calc(var(--board-height) / 2 + 10vmin + 28px); left: 50%;
+    position: fixed; top: calc(var(--board-height) / 2 + 10vmin + 36px); left: 50%;
     transform: translateX(-50%); margin: 0; pointer-events: none;
     color: #aaa; font: 20px / 1.5 system-ui, sans-serif; text-align: center;
-  }
-  .start-rules {
-    position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%;
-    transform: translateX(-50%); width: min(88vw, 32rem); margin: 0;
-    color: #ddd; font: 0.8125rem / 1.5 system-ui, sans-serif;
-    text-align: center; pointer-events: none;
   }
   @media (max-height: 420px) {
     .start-credit { font-size: 0.75rem; }
@@ -66,7 +60,7 @@
   .incoming { pointer-events: none; }
   .piece { position: absolute; top: 50%; left: 50%; }
   .piece::before {
-    content: ""; position: absolute; top: 50%; left: 50%;
+    content: none; position: absolute; top: 50%; left: 50%;
     width: var(--arrival-length, 0px); height: 92%;
     background:
       linear-gradient(90deg, #fff, #79edff 55%, transparent) left 8% / 84% 3px no-repeat,
@@ -79,6 +73,7 @@
     transform-origin: left center;
     transform: translateY(-50%) rotate(var(--arrival-angle, 0deg)) translateX(var(--arrival-start, 0px));
   }
+  .piece.moving::before { content: ""; }
   .piece .face { transform: none; }
   .replaying .face, .preplay .face {
     background: radial-gradient(circle at 32% 24%, #aaa 40%, #858585);
@@ -111,7 +106,7 @@
   .countdown {
     top: calc(var(--board-height) / 2); left: 50%; transform: translate(-50%, -50%);
     font-size: clamp(3rem, 12vmin, 6rem);
-    text-shadow: 0 1px 19.5px #fff, 0 0 46.8px rgba(255, 255, 255, 0.72);
+    text-shadow: 0 1px 29.25px #fff, 0 0 70.2px rgba(255, 255, 255, 0.72);
   }
   .countdown.ready { animation: ready-in 1s ease-out; }
   @keyframes ready-in {
@@ -136,7 +131,6 @@
   <div class="die" role="img" aria-label="正面の目は1"></div>
 </main>
 <img class="start-logo" src="logo.png" alt="Korokoro" width="2172" height="724">
-<p class="start-rules">フリック・矢印キーでサイコロを回し、同じ目をそろえよう。</p>
 <p class="start-credit" lang="en">© 2026 michi-303<br>Made with Codex</p>
 <div class="incoming" aria-hidden="true"></div>
 <p class="combo" role="status"></p>
@@ -430,7 +424,6 @@
   let retryReady = false;
   const startHint = document.querySelector('.start-hint');
   const startLogo = document.querySelector('.start-logo');
-  const startRules = document.querySelector('.start-rules');
   const startCredit = document.querySelector('.start-credit');
   const countdown = document.querySelector('.countdown');
   let playState = 'waiting';
@@ -513,6 +506,7 @@
   function positionPiece(piece, distance, size, tail = 0) {
     piece.units = distance / size;
     piece.tail = tail;
+    piece.element.classList.toggle('moving', tail > 0);
     const [x, y] = directions[piece.direction];
     const glow = tail ** 0.4;
     const tailLength = Math.min(210, size * 2.1) * glow;
@@ -673,6 +667,7 @@
       arrivalFrame = requestAnimationFrame(advanceArrival);
       return;
     }
+    positionPiece(incoming, distance, size);
     stack.push(incoming);
     incoming = null;
     arrivalFrame = null;
@@ -702,7 +697,6 @@
   function startCountdown() {
     playState = 'countdown';
     startLogo.hidden = true;
-    startRules.hidden = true;
     startCredit.hidden = true;
     gesture = null;
     document.documentElement.classList.add('preplay');
