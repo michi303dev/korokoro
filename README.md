@@ -1,4 +1,4 @@
-# korokoro サイコロゲーム by michi-303
+# korokoro - サイコロゲーム by michi-303
 
 ブラウザで `index.html` を開くと起動します。サーバーやライブラリのインストールは不要です。
 
