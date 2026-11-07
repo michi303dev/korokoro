@@ -191,9 +191,25 @@
     [[-0.78,-0.35],[-0.53,-0.24],[-0.29,-0.07],[-0.05,0.06],[0.13,0.40],[0.55,0.29],[0.60,-0.16]],
     // カシオペア座。W字を作る5つの星。
     [[-0.64,-0.24],[-0.39,0.22],[-0.09,-0.17],[0.24,0.16],[0.57,-0.38]],
+    // さそり座。頭からアンタレスを経て、尾の先が折り返す。
+    [[0.57,-0.56],[0.66,-0.34],[0.62,-0.12],[0.36,-0.21],[0.23,-0.12],
+     [0.09,0.05],[-0.03,0.36],[-0.22,0.54],[-0.46,0.56],[-0.62,0.39],[-0.59,0.16],[-0.48,0.07]],
+    // はくちょう座。デネブからアルビレオまでの軸と左右の翼。
+    [[-0.12,-0.62],[0,-0.16],[0.15,0.31],[0.25,0.67],
+     [-0.35,-0.03],[-0.66,0.14],[0.31,-0.30],[0.62,-0.43]],
+    // しし座。ししの大鎌と、胴体を作る三角形。
+    [[0.45,-0.57],[0.63,-0.41],[0.55,-0.20],[0.33,-0.09],[0.26,0.24],[0.32,0.49],
+     [-0.38,0.25],[-0.69,0.47],[-0.23,-0.10]],
+    // おうし座。ヒアデスのV字と二本の角。
+    [[-0.52,-0.61],[-0.63,-0.12],[-0.13,0.03],[0.11,0.26],[0.30,0.36],
+     [0.13,0.04],[0.08,-0.16],[0.70,-0.39],[0.60,-0.46],[0.69,-0.52]],
+    // ふたご座。カストルとポルックスから並行に伸びる二人の姿。
+    [[-0.24,-0.66],[0.21,-0.57],[-0.36,-0.32],[0.13,-0.22],
+     [-0.61,-0.11],[0.50,-0.06],[-0.41,0.12],[0.05,0.18],
+     [-0.58,0.58],[-0.24,0.54],[-0.05,0.63],[0.28,0.53]],
   ];
   let constellation = null;
-  let constellationAt = performance.now() + 3200;
+  let constellationAt = performance.now() + 16000;
   let constellationIndex = 0;
   let previousSky = null;
   let width, height;
@@ -295,16 +311,12 @@
         start: now,
       };
       constellationIndex = (constellationIndex + 1) % constellations.length;
+      constellationAt = now + (7000 + Math.random() * 2000) * 5;
     }
     const sky = previousSky;
     previousSky = offset.slice();
     if (!constellation) return;
     const age = now - constellation.start;
-    if (age >= 4800) {
-      constellation = null;
-      constellationAt = now + 2200 + Math.random() * 2000;
-      return;
-    }
     if (sky?.[3] === offset[3]) {
       const zoom = Math.exp(offset[2] - sky[2]);
       constellation.scale *= zoom;
@@ -312,13 +324,21 @@
       constellation.y = constellation.y * zoom + (offset[1] - sky[1]) * travel[0] / height;
     }
     const unit = Math.min(width, height) * 0.15 * constellation.scale;
-    ctx.globalAlpha = Math.max(0, Math.min(age / 650, (4800 - age) / 950, 1));
+    const radius = 2.2 * Math.min(constellation.scale, 1.8);
+    const points = constellation.points.map(([x, y]) => [
+      (0.5 + constellation.x) * width + x * unit,
+      (0.5 + constellation.y) * height + y * unit,
+    ]);
+    if (points.every(([x, y]) =>
+      x + radius < 0 || x - radius > width || y + radius < 0 || y - radius > height)) {
+      constellation = null;
+      return;
+    }
+    ctx.globalAlpha = Math.min(age / 650, 1);
     ctx.fillStyle = '#fff2c4';
-    for (const [x, y] of constellation.points) {
+    for (const [x, y] of points) {
       ctx.beginPath();
-      ctx.arc((0.5 + constellation.x) * width + x * unit,
-              (0.5 + constellation.y) * height + y * unit,
-              2.2 * Math.min(constellation.scale, 1.8), 0, Math.PI * 2);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -809,7 +829,7 @@
     arrivalDuration = 475;
     offset = [0, 0, 0, stars];
     constellation = previousSky = null;
-    constellationAt = performance.now() + 3200;
+    constellationAt = performance.now() + 16000;
     constellationIndex = 0;
     trail.length = 0;
     for (const stack of stacks) stack.length = 0;
