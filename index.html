@@ -116,10 +116,17 @@
     text-shadow: 2px 2px 0 #000, -2px -2px 0 #000,
                  2px -2px 0 #000, -2px 2px 0 #000;
   }
-  .countdown.ready { animation: ready-in 1s ease-out; }
+  .countdown.ready {
+    animation: ready-in 1s ease-out 0.3s backwards,
+               ready-fade 1s cubic-bezier(0.55, 0, 1, 0.45) 0.3s both;
+  }
   @keyframes ready-in {
-    from { transform: translate(-50%, -50%) scale(8); opacity: 0; }
-    to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    from { transform: translate(-50%, -50%) scale(8); }
+    to { transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes ready-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
   .start-hint {
     position: fixed; bottom: max(16px, env(safe-area-inset-bottom));
