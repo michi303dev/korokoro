@@ -355,6 +355,7 @@
 
   let sampledAt = 0;
   let driftAt = null;
+  let gameStartedAt = null;
   function updateStars(now) {
     trailFrame = null;
     const elapsed = driftAt === null ? 0 : Math.min(now - driftAt, 50);
@@ -378,7 +379,10 @@
       offset[0] -= elapsed / 20000;
     } else if (!warping && motion === null && gesture === null) {
       if (offset[0] !== 0 || offset[1] !== 0) rebaseStars();
-      warpDistance += elapsed / 24000;
+      const speed = playState === 'playing' && gameStartedAt !== null
+        ? 1 + Math.max(0, now - gameStartedAt) / 100000
+        : 1;
+      warpDistance += elapsed / 24000 * speed;
       offset[2] = warpDistance;
     }
     drawStars(now);
@@ -757,6 +761,7 @@
     rows = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]];
     die.style.transform = matrix(rows);
     playState = 'countdown';
+    gameStartedAt = null;
     startLogo.hidden = true;
     startCredit.hidden = true;
     gesture = null;
@@ -783,6 +788,7 @@
         countdown.hidden = true;
         countdown.textContent = '';
         playState = 'playing';
+        gameStartedAt = performance.now();
         document.documentElement.classList.remove('preplay');
         spawnPiece();
       }, goDuration);
