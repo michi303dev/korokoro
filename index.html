@@ -523,7 +523,6 @@
     if (frame === replay.shown) return;
     const size = pieceSize();
     for (const { piece, units, tail, overflow, clearing } of frame.pieces) {
-      if (overflow && !piece.element.classList.contains('overflow')) blinkOverflow(piece);
       piece.element.classList.toggle('overflow', overflow);
       piece.element.classList.toggle('clearing', clearing);
       const [x] = directions[piece.direction];
@@ -532,6 +531,11 @@
       positionPiece(piece, distance, size, tail);
     }
     incomingLayer.replaceChildren(...frame.pieces.map(({ piece }) => piece.element));
+    for (const { piece, overflow } of frame.pieces) {
+      if (overflow && !replay.shown?.pieces.some(previous => previous.piece === piece && previous.overflow)) {
+        blinkOverflow(piece);
+      }
+    }
     die.style.transform = frame.rotation;
     die.classList.toggle('clearing', frame.centerClearing);
     six.style.setProperty('--side', frame.sixSide);
