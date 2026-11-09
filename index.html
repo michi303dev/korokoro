@@ -380,7 +380,7 @@
     } else if (!warping && motion === null && gesture === null) {
       if (offset[0] !== 0 || offset[1] !== 0) rebaseStars();
       const speed = playState === 'playing' && gameStartedAt !== null
-        ? 1 + Math.max(0, now - gameStartedAt) / 100000
+        ? 1 + Math.max(0, now - gameStartedAt) / 50000
         : 1;
       warpDistance += elapsed / 24000 * speed;
       offset[2] = warpDistance;
