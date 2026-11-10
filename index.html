@@ -15,12 +15,19 @@
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
-  :root { --board-height: 100vh; }
+  :root { --board-height: 100vh; --field-size: min(100vw, var(--board-height)); }
   @supports (height: 100dvh) { :root { --board-height: 100dvh; } }
   html.inverted { filter: invert(1); }
-  body { background: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
-  canvas, main, .incoming { position: fixed; inset: 0 0 auto; height: var(--board-height); }
-  canvas { pointer-events: none; }
+  body { background: #262626; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .inverted body { background: #d9d9d9; }
+  canvas, main, .incoming {
+    position: fixed;
+    left: calc((100vw - var(--field-size)) / 2);
+    top: calc((var(--board-height) - var(--field-size)) / 2);
+    width: var(--field-size); height: var(--field-size);
+  }
+  main, .incoming { overflow: clip; }
+  canvas { background: #000; pointer-events: none; }
   .start-logo {
     position: fixed; left: 50%; top: calc(var(--board-height) / 2 - 10vmin - 28px);
     width: min(72vw, 520px); height: auto; max-height: 23vh;
@@ -92,8 +99,8 @@
   .inverted .clearing .face { background: rgb(29, 0, 242); }
   .result {
     pointer-events: none;
-    position: fixed; left: max(16px, env(safe-area-inset-left));
-    top: max(16px, env(safe-area-inset-top)); color: #fff;
+    position: fixed; left: calc((100vw - var(--field-size)) / 2 + max(16px, env(safe-area-inset-left)));
+    top: calc((var(--board-height) - var(--field-size)) / 2 + max(16px, env(safe-area-inset-top))); color: #fff;
     font: 600 1.3rem "Orbitron", system-ui, sans-serif;
   }
   .combo, .countdown {
@@ -103,8 +110,8 @@
     pointer-events: none;
   }
   .combo {
-    left: max(16px, env(safe-area-inset-left));
-    bottom: max(16px, env(safe-area-inset-bottom));
+    left: calc((100vw - var(--field-size)) / 2 + max(16px, env(safe-area-inset-left)));
+    bottom: calc((var(--board-height) - var(--field-size)) / 2 + max(16px, env(safe-area-inset-bottom)));
   }
   .countdown {
     top: calc(var(--board-height) / 2); left: 50%; transform: translate(-50%, -50%);
@@ -129,8 +136,8 @@
     to { opacity: 1; }
   }
   .start-hint {
-    position: fixed; bottom: max(16px, env(safe-area-inset-bottom));
-    right: max(16px, env(safe-area-inset-right)); margin: 0;
+    position: fixed; bottom: calc((var(--board-height) - var(--field-size)) / 2 + max(16px, env(safe-area-inset-bottom)));
+    right: calc((100vw - var(--field-size)) / 2 + max(16px, env(safe-area-inset-right))); margin: 0;
     color: #fff; font: 600 1rem "Orbitron", system-ui, sans-serif; pointer-events: none;
     animation: hint-fade 1.8s ease-out infinite;
   }
@@ -402,7 +409,7 @@
     const perspective = parseFloat(getComputedStyle(stage).perspective);
     // 正面の遠近補正を逆算し、短辺に5.5個分の幅を確保する。
     const front = Math.max(0, shortSide / 5.5 - 1);
-    const size = Math.min(180, front / (1 + front / (2 * perspective)));
+    const size = front / (1 + front / (2 * perspective));
     die.style.setProperty('--size', size + 'px');
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(width * ratio);
@@ -458,6 +465,7 @@
       motion = null;
       centerNumber = number;
       matchPieces();
+      flushPendingRotation();
     });
     requestStars();
   }
@@ -491,6 +499,23 @@
   const minimumClearPause = 15;
   let clearPause = initialClearPause;
   let clearing = false;
+  let pendingRotation = null;
+
+  function requestRotation(dx, dy) {
+    if (gameOver || playState !== 'playing') return;
+    if (clearing || motion !== null) {
+      if (pendingRotation === null) pendingRotation = [dx, dy];
+      return;
+    }
+    rotate(dx, dy);
+  }
+
+  function flushPendingRotation() {
+    if (pendingRotation === null || gameOver || playState !== 'playing' || clearing || motion !== null) return;
+    const direction = pendingRotation;
+    pendingRotation = null;
+    rotate(...direction);
+  }
 
   function recordBoard(now) {
     const pieces = stacks.flat();
@@ -617,7 +642,6 @@
     if (fullClear && incoming) highlighted.push(incoming);
     const started = performance.now();
     clearing = true;
-    gesture = null;
     if (arrivalFrame !== null) {
       cancelAnimationFrame(arrivalFrame);
       arrivalFrame = null;
@@ -655,6 +679,7 @@
       } else if (spawnTimer === null) {
         spawnTimer = setTimeout(spawnPiece, 0);
       }
+      flushPendingRotation();
     }
     if (!moves.length) {
       resume(start);
@@ -712,6 +737,7 @@
       motion = null;
       clearTimeout(comboTimer);
       gameOver = true;
+      pendingRotation = null;
       document.documentElement.classList.add('replaying');
       result.hidden = false;
       setTimeout(() => {
@@ -818,12 +844,12 @@
     }
     if (!direction) return;
     event.preventDefault();
-    if (!event.repeat && !clearing && motion === null && gesture === null) rotate(...direction);
+    if (!event.repeat && gesture === null) requestRotation(...direction);
   });
   stage.addEventListener('pointerdown', event => {
     if (gesture || !event.isPrimary || event.button !== 0) return;
     const starting = playState === 'waiting' || (gameOver && retryReady);
-    if (!starting && (playState !== 'playing' || gameOver || clearing || motion !== null)) return;
+    if (!starting && (playState !== 'playing' || gameOver)) return;
     gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, starting };
     stage.setPointerCapture(event.pointerId);
   });
@@ -837,7 +863,7 @@
     if (starting) {
       if (distance < 24) activateStart();
     } else if (!gameOver && distance >= 24) {
-      rotate(dx, dy);
+      requestRotation(dx, dy);
     }
   });
   for (const type of ['pointercancel', 'lostpointercapture']) {
@@ -867,6 +893,7 @@
     }
     arrivalFrame = motion = trailFrame = null;
     incoming = gesture = warp = null;
+    pendingRotation = null;
     document.documentElement.classList.remove('inverted', 'replaying');
     overflowPiece = null;
     replay = null;
