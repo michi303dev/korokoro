@@ -28,6 +28,19 @@
   }
   main, .incoming { overflow: clip; }
   canvas { background: #000; pointer-events: none; }
+  .ambient {
+    position: fixed; inset: 0 0 auto; height: var(--board-height); overflow: hidden; pointer-events: none;
+    background: #1e1e1e;
+  }
+  .ambient-field {
+    position: absolute; left: 50%; top: 50%;
+    width: var(--field-size); height: var(--field-size);
+    transform: translate(-50%, -50%) scale(var(--ambient-scale, 2));
+    filter: blur(24px) brightness(0.45);
+  }
+  .ambient canvas, .ambient-stage, .ambient .incoming {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+  }
   .start-logo {
     position: fixed; left: 50%; top: calc(var(--board-height) / 2 - 10vmin - 28px);
     width: min(72vw, 520px); height: auto; max-height: 23vh;
@@ -41,7 +54,8 @@
   @media (max-height: 420px) {
     .start-credit { font-size: 0.75rem; }
   }
-  main { --perspective: 900px; display: grid; place-items: center; perspective: var(--perspective); cursor: grab; }
+  main, .ambient-stage { --perspective: 900px; display: grid; place-items: center; perspective: var(--perspective); }
+  main { cursor: grab; }
   main:active { cursor: grabbing; }
   .die {
     --size: clamp(76px, 26vmin, 180px);
@@ -395,6 +409,7 @@
     drawStars(now);
     if (gameOver) playReplay(now);
     else if (dropHistory.length && now - recordedAt >= 33) recordBoard(now);
+    updateAmbient(now);
     requestStars();
   }
 
@@ -417,6 +432,7 @@
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ambientUpdatedAt = -Infinity;
     drawStars(performance.now());
   }
 
@@ -471,6 +487,51 @@
   }
 
   const incomingLayer = document.querySelector('.incoming');
+  const ambient = document.createElement('div');
+  ambient.className = 'ambient';
+  ambient.setAttribute('aria-hidden', 'true');
+  const ambientField = document.createElement('div');
+  ambientField.className = 'ambient-field';
+  const ambientCanvas = document.createElement('canvas');
+  ambientCanvas.width = ambientCanvas.height = 320;
+  const ambientContext = ambientCanvas.getContext('2d');
+  const ambientStage = document.createElement('div');
+  ambientStage.className = 'ambient-stage';
+  const ambientDie = die.cloneNode(true);
+  ambientStage.append(ambientDie);
+  const ambientIncoming = document.createElement('div');
+  ambientIncoming.className = 'incoming';
+  ambientField.append(ambientCanvas, ambientStage, ambientIncoming);
+  ambient.append(ambientField);
+  document.body.prepend(ambient);
+  const ambientPieces = new WeakMap();
+  let ambientUpdatedAt = -Infinity;
+
+  function updateAmbient(now) {
+    if (now - ambientUpdatedAt < 33) return;
+    ambientUpdatedAt = now;
+    ambientContext.clearRect(0, 0, 320, 320);
+    ambientContext.drawImage(canvas, 0, 0, 320, 320);
+    ambientDie.className = die.className;
+    ambientDie.style.cssText = die.style.cssText;
+    ambientDie.style.transform = getComputedStyle(die).transform;
+    ambientDie.lastElementChild.style.cssText = six.style.cssText;
+    const pieces = Array.from(incomingLayer.children, element => {
+      let copy = ambientPieces.get(element);
+      if (!copy) {
+        copy = element.cloneNode(true);
+        ambientPieces.set(element, copy);
+      }
+      copy.className = element.className;
+      copy.style.cssText = element.style.cssText;
+      if (element.classList.contains('overflow')) copy.style.opacity = getComputedStyle(element).opacity;
+      return copy;
+    });
+    if (pieces.length !== ambientIncoming.children.length ||
+        pieces.some((piece, index) => piece !== ambientIncoming.children[index])) {
+      ambientIncoming.replaceChildren(...pieces);
+    }
+  }
   const result = document.querySelector('.result');
   let retryReady = false;
   const startHint = document.querySelector('.start-hint');
@@ -876,13 +937,19 @@
   }
   window.addEventListener('wheel', event => event.preventDefault(), { passive: false });
   function resizeBoard() {
+    const fieldSize = stage.clientWidth;
+    if (fieldSize > 0) {
+      ambientField.style.setProperty('--ambient-scale', Math.max(ambient.clientWidth, ambient.clientHeight) / fieldSize * 1.12);
+    }
     if (width === stage.clientWidth && height === stage.clientHeight) return;
     resize();
     if (replay) replay.shown = null;
     else layoutStacks();
   }
   window.addEventListener('resize', resizeBoard);
-  new ResizeObserver(resizeBoard).observe(stage);
+  const boardObserver = new ResizeObserver(resizeBoard);
+  boardObserver.observe(stage);
+  boardObserver.observe(ambient);
   function retryGame() {
     retryReady = false;
     clearTimeout(spawnTimer);
@@ -920,7 +987,7 @@
     requestStars();
     startCountdown();
   }
-  resize();
+  resizeBoard();
   requestStars();
 </script>
 </body>
