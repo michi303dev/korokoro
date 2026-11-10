@@ -476,6 +476,7 @@
   const stacks = directions.map(() => []);
   let centerNumber = 1;
   let nextDirection = 0;
+  const stickingDuration = 600;
   let arrivalDuration = 475;
   let incoming = null;
   let arrivalFrame = null;
@@ -688,7 +689,7 @@
         arrivalFrame = null;
         incoming = null;
         clearTimeout(spawnTimer);
-        spawnTimer = setTimeout(spawnPiece, 1100);
+        spawnTimer = setTimeout(spawnPiece, stickingDuration);
       }
     }
   }
@@ -732,7 +733,7 @@
     incoming = null;
     arrivalFrame = null;
     if (motion === null) matchPieces();
-    spawnTimer = setTimeout(spawnPiece, 1100);
+    spawnTimer = setTimeout(spawnPiece, stickingDuration);
   }
 
   function spawnPiece() {
