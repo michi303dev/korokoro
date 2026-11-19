@@ -210,10 +210,6 @@
   const canvas = document.querySelector('canvas');
   const ctx = canvas.getContext('2d');
   const starColors = ['#a6d7ff', '#8cf5dc', '#fff0a3', '#ffba8d', '#ffa6d5', '#cbb6ff'];
-  const trailPalettes = [0, 51].map(base => new Map(starColors.map(color => {
-    const channels = color.slice(1).match(/../g).map(channel => base + Math.round(parseInt(channel, 16) * 0.8));
-    return [color, `rgb(${channels.join(', ')})`];
-  })));
   const stars = [196, 56, 28].flatMap((count, depth) => {
     // 各層で方角と半径を均等に配り、隣り合う方角の半径をずらす。
     const stride = [75, 23, 11][depth];
@@ -310,14 +306,15 @@
     }
   }
 
-  function paintTrail(from, to, opacity, palette) {
+  function paintTrail(from, to, opacity) {
     if (from[3] !== to[3]) return;
     const spiraling = from[4] !== undefined || to[4] !== undefined;
+    ctx.strokeStyle = '#c7cfff';
     ctx.lineCap = 'round';
     for (let depth = 0; depth < travel.length; depth++) {
       ctx.globalAlpha = opacity * ((spiraling ? 0.55 : 0.35) + depth * 0.14);
       ctx.lineWidth = (spiraling ? 1 : 0.65) + depth * 0.45;
-      const paths = new Map();
+      ctx.beginPath();
       for (const star of to[3]) {
         if (star.depth !== depth) continue;
         if (star.shifted && from[2] < star.shifted.exit && to[2] >= star.shifted.exit) continue;
@@ -327,16 +324,11 @@
         const dx = (rx - px) * width + (to[0] - from[0]) * travel[depth];
         const dy = (ry - py) * height + (to[1] - from[1]) * travel[depth];
         if (dx === 0 && dy === 0) continue;
-        let path = paths.get(star.color);
-        if (!path) {
-          path = new Path2D();
-          paths.set(star.color, path);
-        }
         const headX = (rx + 0.5) * width + to[0] * travel[depth];
         const headY = (ry + 0.5) * height + to[1] * travel[depth];
         if (spiraling) {
-          path.moveTo(headX - dx, headY - dy);
-          path.lineTo(headX, headY);
+          ctx.moveTo(headX - dx, headY - dy);
+          ctx.lineTo(headX, headY);
           continue;
         }
         const x = wrap(headX, width);
@@ -348,15 +340,12 @@
                shiftY <= Math.floor((height + Math.max(0, dy) - y) / height); shiftY++) {
             const headX = x + shiftX * width;
             const headY = y + shiftY * height;
-            path.moveTo(headX - dx, headY - dy);
-            path.lineTo(headX, headY);
+            ctx.moveTo(headX - dx, headY - dy);
+            ctx.lineTo(headX, headY);
           }
         }
       }
-      for (const [color, path] of paths) {
-        ctx.strokeStyle = palette.get(color);
-        ctx.stroke(path);
-      }
+      ctx.stroke();
     }
   }
 
@@ -367,10 +356,9 @@
     ctx.resetTransform();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
-    const palette = trailPalettes[document.documentElement.classList.contains('inverted') ? 1 : 0];
     trail.forEach((point, index) => {
       const next = trail[index + 1]?.offset ?? offset;
-      paintTrail(point.offset, next, (1 - (now - point.time) / trailDuration) ** 2, palette);
+      paintTrail(point.offset, next, (1 - (now - point.time) / trailDuration) ** 2);
     });
     paintStars(offset);
     paintConstellation(now);
