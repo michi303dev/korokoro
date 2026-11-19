@@ -256,7 +256,7 @@
   let trailFrame = null;
   const wrap = (value, size) => ((value % size) + size) % size;
 
-  function radialPosition(star, distance) {
+  function radialPosition(star, distance, twist) {
     const x = star.x - 0.5;
     const y = star.y - 0.5;
     const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
@@ -267,12 +267,17 @@
       return [x * next / radius, y * next / radius, next];
     }
     const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
+    if (twist !== undefined) {
+      const [cos, sin] = twist;
+      return [(x * cos - y * sin) * next / radius,
+              (x * sin + y * cos) * next / radius, next];
+    }
     return [x * next / radius, y * next / radius, next];
   }
 
-  function starPosition(index, [x, y, distance, field]) {
+  function starPosition(index, [x, y, distance, field, twist]) {
     const star = field[index];
-    const [rx, ry] = radialPosition(star, distance);
+    const [rx, ry] = radialPosition(star, distance, twist);
     return [(rx + 0.5) * width + x * travel[star.depth],
             (ry + 0.5) * height + y * travel[star.depth]];
   }
@@ -284,8 +289,8 @@
       const size = 2 * (1 + depth * 0.35);
       ctx.globalAlpha = star.opacity;
       ctx.fillStyle = star.color;
-      ctx.fillRect(wrap(x, width), wrap(y, height),
-                   size, size);
+      if (state[4] === undefined) ctx.fillRect(wrap(x, width), wrap(y, height), size, size);
+      else ctx.fillRect(x, y, size, size);
     }
   }
 
@@ -299,14 +304,21 @@
       ctx.beginPath();
       for (const star of to[3]) {
         if (star.depth !== depth) continue;
-        const [rx, ry, radius] = radialPosition(star, to[2]);
-        const [px, py, previousRadius] = radialPosition(star, from[2]);
+        const [rx, ry, radius] = radialPosition(star, to[2], to[4]);
+        const [px, py, previousRadius] = radialPosition(star, from[2], from[4]);
         if (radius < previousRadius) continue;
         const dx = (rx - px) * width + (to[0] - from[0]) * travel[depth];
         const dy = (ry - py) * height + (to[1] - from[1]) * travel[depth];
         if (dx === 0 && dy === 0) continue;
-        const x = wrap((rx + 0.5) * width + to[0] * travel[depth], width);
-        const y = wrap((ry + 0.5) * height + to[1] * travel[depth], height);
+        const headX = (rx + 0.5) * width + to[0] * travel[depth];
+        const headY = (ry + 0.5) * height + to[1] * travel[depth];
+        if (from[4] !== undefined || to[4] !== undefined) {
+          ctx.moveTo(headX - dx, headY - dy);
+          ctx.lineTo(headX, headY);
+          continue;
+        }
+        const x = wrap(headX, width);
+        const y = wrap(headY, height);
         // 画面の端をまたぐ尾も、反対側に続けて描く。
         for (let shiftX = Math.ceil((Math.min(0, dx) - x) / width);
              shiftX <= Math.floor((width + Math.max(0, dx) - x) / width); shiftX++) {
@@ -387,9 +399,15 @@
     driftAt = now;
     const previousDistance = offset[2];
     const warping = warp !== null;
+    let twist;
     if (warp) {
       const progress = Math.max(0, Math.min((now - warp.start) / warp.duration, 1));
-      warpDistance = warp.origin + 2.2 * progress * progress * (3 - 2 * progress);
+      const eased = progress * progress * (3 - 2 * progress);
+      warpDistance = warp.origin + 2.2 * eased;
+      if (warp.fullClear && progress < 1) {
+        const angle = 2 * Math.PI * eased;
+        twist = [Math.cos(angle), Math.sin(angle)];
+      }
       if (progress === 1) {
         warp = null;
         document.documentElement.classList.remove('inverted');
@@ -400,6 +418,7 @@
       sampledAt = now;
     }
     offset[2] = warpDistance;
+    offset[4] = twist;
     if (gameOver && !warping) {
       offset[0] -= elapsed / 20000;
     } else if (!warping && motion === null && gesture === null) {
@@ -735,7 +754,7 @@
       });
       finishClear(fullClear);
       compactStacks(started);
-    }, clearPause);
+    }, fullClear ? clearPause * 2 : clearPause);
     clearPause = Math.max(minimumClearPause, clearPause - initialClearPause * 0.05);
   }
 
@@ -774,7 +793,7 @@
   function startWarp(combo, started, fullClear) {
     rebaseStars();
     const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1) * (fullClear ? 2 : 1);
-    warp = { start: started, origin: 0, duration };
+    warp = { start: started, origin: 0, duration, fullClear };
     document.documentElement.classList.toggle('inverted', combo >= 5);
     requestStars();
   }
