@@ -268,31 +268,35 @@
   const wrap = (value, size) => ((value % size) + size) % size;
 
   function radialPosition(star, distance, twist) {
-    const x = star.x - 0.5;
-    const y = star.y - 0.5;
+    const speed = 0.4 + star.depth * 0.19;
+    const shifted = star.shifted;
+    const point = shifted && distance < shifted.exit ? shifted : star;
+    const x = point.x - 0.5;
+    const y = point.y - 0.5;
     const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
-    const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
+    const next = point === star ? wrap(radius + distance * speed, 1) : radius + (distance - point.start) * speed;
+    const fade = shifted && point === star ? Math.min(1, (distance - shifted.exit) * speed * 8) : 1;
     if (twist !== undefined) {
       const [cos, sin] = twist;
       return [(x * cos - y * sin) * next / radius,
-              (x * sin + y * cos) * next / radius, next];
+              (x * sin + y * cos) * next / radius, next, fade];
     }
-    return [x * next / radius, y * next / radius, next];
+    return [x * next / radius, y * next / radius, next, fade];
   }
 
   function starPosition(index, [x, y, distance, field, twist]) {
     const star = field[index];
-    const [rx, ry, radius] = radialPosition(star, distance, twist);
+    const [rx, ry, radius, fade] = radialPosition(star, distance, twist);
     return [(rx + 0.5) * width + x * travel[star.depth],
-            (ry + 0.5) * height + y * travel[star.depth], radius];
+            (ry + 0.5) * height + y * travel[star.depth], radius, fade];
   }
 
   function paintStars(state) {
     for (const [index, star] of stars.entries()) {
       const depth = star.depth;
-      const [x, y, radius] = starPosition(index, state);
+      const [x, y, radius, fade] = starPosition(index, state);
       const size = 2 * (1 + depth * 0.35);
-      ctx.globalAlpha = star.opacity * Math.min(1, radius * 1.5);
+      ctx.globalAlpha = star.opacity * Math.min(1, radius * 1.5) * fade;
       ctx.fillStyle = star.color;
       if (state[4] === undefined) ctx.fillRect(wrap(x, width), wrap(y, height), size, size);
       else ctx.fillRect(x, y, size, size);
@@ -309,6 +313,7 @@
       ctx.beginPath();
       for (const star of to[3]) {
         if (star.depth !== depth) continue;
+        if (star.shifted && from[2] < star.shifted.exit && to[2] >= star.shifted.exit) continue;
         const [rx, ry, radius] = radialPosition(star, to[2], to[4]);
         const [px, py, previousRadius] = radialPosition(star, from[2], from[4]);
         if (radius < previousRadius || radius < 0.08) continue;
@@ -405,6 +410,7 @@
     const previousDistance = offset[2];
     const warping = warp !== null;
     let twist;
+    let clearWarpTrail = false;
     if (warp) {
       const progress = Math.max(0, Math.min((now - warp.start) / warp.duration, 1));
       const eased = progress * progress * (3 - 2 * progress);
@@ -414,11 +420,14 @@
         twist = [Math.cos(angle), Math.sin(angle)];
       }
       if (progress === 1) {
+        clearWarpTrail = !warp.fullClear;
         warp = null;
         document.documentElement.classList.remove('inverted');
       }
     }
-    if (now - sampledAt >= 16 && (motion !== null || previousDistance !== warpDistance)) {
+    if (clearWarpTrail) {
+      trail.length = 0;
+    } else if (now - sampledAt >= 16 && (motion !== null || previousDistance !== warpDistance)) {
       trail.push({ offset: offset.slice(), time: now });
       sampledAt = now;
     }
@@ -468,6 +477,21 @@
     return 'matrix3d(' + [a,d,g,0,b,e,h,0,c,f,i,0,0,0,0,1].join(',') + ')';
   }
 
+  function settleStarPan() {
+    const start = offset[2];
+    // 移動先から中央基準の直線を進み、画面端で元の星の分布に戻す。
+    const field = stars.map((star, index) => {
+      const [px, py] = starPosition(index, offset);
+      const x = wrap(px, width) / width;
+      const y = wrap(py, height) / height;
+      const radius = 2 * Math.max(Math.abs(x - 0.5), Math.abs(y - 0.5));
+      if (radius === 0) return star;
+      const exit = start + (1 - radius) / (0.4 + star.depth * 0.19);
+      return { ...star, shifted: { x, y, start, exit } };
+    });
+    offset = [0, 0, start, field];
+  }
+
   function rotate(dx, dy) {
     const horizontal = Math.abs(dx) >= Math.abs(dy);
     const direction = Math.sign(horizontal ? dx : dy);
@@ -506,6 +530,7 @@
         normal.reduce((sum, component, index) => sum + component * rows[2][index], 0) === 1);
       die.setAttribute('aria-label', '正面の目は' + number);
       motion = null;
+      if (panStars && warp === null && (offset[0] !== 0 || offset[1] !== 0)) settleStarPan();
       centerNumber = number;
       matchPieces();
       flushPendingRotation();
