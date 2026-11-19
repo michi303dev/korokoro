@@ -210,13 +210,24 @@
   const canvas = document.querySelector('canvas');
   const ctx = canvas.getContext('2d');
   const starColors = ['#a6d7ff', '#8cf5dc', '#fff0a3', '#ffba8d', '#ffa6d5', '#cbb6ff'];
-  const stars = Array.from({ length: 280 }, (_, i) => ({
-    x: (i % 20 + 0.15 + Math.random() * 0.7) / 20,
-    y: (Math.floor(i / 20) + 0.15 + Math.random() * 0.7) / 14,
-    depth: (i * 37) % 280 < 196 ? 0 : (i * 37) % 280 < 252 ? 1 : 2,
-    opacity: 0.3 + Math.random() * 0.6,
-    color: starColors[Math.floor(Math.random() * starColors.length)],
-  }));
+  const stars = [196, 56, 28].flatMap((count, depth) => {
+    // 各層で方角と半径を均等に配り、隣り合う方角の半径をずらす。
+    const stride = [75, 23, 11][depth];
+    return Array.from({ length: count }, (_, index) => {
+      const angle = 2 * Math.PI * (index + Math.random()) / count;
+      const radius = ((index * stride) % count + Math.random()) / count;
+      const x = Math.cos(angle);
+      const y = Math.sin(angle);
+      const scale = radius / (2 * Math.max(Math.abs(x), Math.abs(y)));
+      return {
+        x: 0.5 + x * scale,
+        y: 0.5 + y * scale,
+        depth,
+        opacity: 0.3 + Math.random() * 0.6,
+        color: starColors[Math.floor(Math.random() * starColors.length)],
+      };
+    });
+  });
   const travel = [72, 204, 426];
   const constellations = [
     // オリオン座。肩、三つ星、足。
@@ -260,12 +271,6 @@
     const x = star.x - 0.5;
     const y = star.y - 0.5;
     const radius = Math.max(Math.abs(x), Math.abs(y)) * 2 || 1;
-    if (playState === 'waiting') {
-      const edgeDistance = Math.hypot(x * width, y * height) / radius;
-      const speed = [4, 10, 20][star.depth];
-      const next = wrap(radius + distance * 24 * speed / edgeDistance, 1);
-      return [x * next / radius, y * next / radius, next];
-    }
     const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
     if (twist !== undefined) {
       const [cos, sin] = twist;
@@ -277,17 +282,17 @@
 
   function starPosition(index, [x, y, distance, field, twist]) {
     const star = field[index];
-    const [rx, ry] = radialPosition(star, distance, twist);
+    const [rx, ry, radius] = radialPosition(star, distance, twist);
     return [(rx + 0.5) * width + x * travel[star.depth],
-            (ry + 0.5) * height + y * travel[star.depth]];
+            (ry + 0.5) * height + y * travel[star.depth], radius];
   }
 
   function paintStars(state) {
     for (const [index, star] of stars.entries()) {
       const depth = star.depth;
-      const [x, y] = starPosition(index, state);
+      const [x, y, radius] = starPosition(index, state);
       const size = 2 * (1 + depth * 0.35);
-      ctx.globalAlpha = star.opacity;
+      ctx.globalAlpha = star.opacity * Math.min(1, radius * 1.5);
       ctx.fillStyle = star.color;
       if (state[4] === undefined) ctx.fillRect(wrap(x, width), wrap(y, height), size, size);
       else ctx.fillRect(x, y, size, size);
@@ -306,7 +311,7 @@
         if (star.depth !== depth) continue;
         const [rx, ry, radius] = radialPosition(star, to[2], to[4]);
         const [px, py, previousRadius] = radialPosition(star, from[2], from[4]);
-        if (radius < previousRadius) continue;
+        if (radius < previousRadius || radius < 0.08) continue;
         const dx = (rx - px) * width + (to[0] - from[0]) * travel[depth];
         const dy = (ry - py) * height + (to[1] - from[1]) * travel[depth];
         if (dx === 0 && dy === 0) continue;
@@ -422,7 +427,6 @@
     if (gameOver && !warping) {
       offset[0] -= elapsed / 20000;
     } else if (!warping && motion === null && gesture === null) {
-      if (offset[0] !== 0 || offset[1] !== 0) rebaseStars();
       const speed = playState === 'playing' && gameStartedAt !== null
         ? 1 + Math.max(0, now - gameStartedAt) / 25000
         : 1;
@@ -487,8 +491,9 @@
       const angle = (horizontal ? direction : -direction) * 90 * eased;
       const axis = horizontal ? 'Y' : 'X';
       if (panStars) {
-        offset[0] = origin[0] - (horizontal ? direction * eased : 0);
-        offset[1] = origin[1] - (horizontal ? 0 : direction * eased);
+        const pan = progress < 1 ? Math.sin(Math.PI * eased) : 0;
+        offset[0] = origin[0] - (horizontal ? direction * pan : 0);
+        offset[1] = origin[1] - (horizontal ? 0 : direction * pan);
       }
 
       if (progress < 1) {
@@ -711,16 +716,6 @@
     }
   }
 
-  function rebaseStars() {
-    // 現在の見た目を保ったまま、画面中央を原点に戻す。
-    const field = stars.map((star, index) => {
-      const [x, y] = starPosition(index, offset);
-      return { ...star, x: wrap(x, width) / width, y: wrap(y, height) / height };
-    });
-    offset = [0, 0, 0, field];
-    warpDistance = 0;
-  }
-
   function matchPieces() {
     const matches = stacks.map(stack => {
       const firstDifferent = stack.findIndex(piece => piece.number !== centerNumber);
@@ -745,7 +740,7 @@
       comboLabel.textContent = 'NICE ' + combo + ' combo!';
       comboTimer = gameTimeout(() => { comboLabel.textContent = ''; }, 1500);
     }
-    startWarp(combo, started, fullClear);
+    const warpDuration = startWarp(combo, started, fullClear);
     recordBoard(started);
     gameTimeout(() => {
       die.classList.remove('clearing');
@@ -754,7 +749,7 @@
       });
       finishClear(fullClear);
       compactStacks(started);
-    }, fullClear ? clearPause * 2 : clearPause);
+    }, fullClear ? warpDuration + trailDuration : clearPause);
     clearPause = Math.max(minimumClearPause, clearPause - initialClearPause * 0.05);
   }
 
@@ -791,11 +786,11 @@
   }
 
   function startWarp(combo, started, fullClear) {
-    rebaseStars();
     const duration = 440 * (combo >= 4 ? 3 : combo === 3 ? 2 : 1) * (fullClear ? 2 : 1);
-    warp = { start: started, origin: 0, duration, fullClear };
+    warp = { start: started, origin: warpDistance, duration, fullClear };
     document.documentElement.classList.toggle('inverted', combo >= 5);
     requestStars();
+    return duration;
   }
 
   function finishClear(fullClear) {
@@ -909,7 +904,6 @@
   });
   let gesture = null;
   function startCountdown() {
-    if (playState === 'waiting') rebaseStars();
     // Keep 1 facing forward while choosing one of its four surrounding layouts.
     const [cos, sin] = [[1, 0], [0, 1], [-1, 0], [0, -1]][Math.floor(Math.random() * 4)];
     rows = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]];
