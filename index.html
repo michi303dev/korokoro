@@ -170,6 +170,7 @@
 <p class="start-credit" lang="en">© 2026 michi-303</p>
 <div class="incoming" aria-hidden="true"></div>
 <p class="combo" role="status"></p>
+<p id="training-label" hidden style="position:fixed;top:16px;left:16px;color:#a0f5df;font:600 14px system-ui;pointer-events:none">TRAINING</p>
 <p class="start-hint" lang="en">Tap or Press Any Key</p>
 <p class="countdown" role="status" lang="en" hidden></p>
 <div class="result" hidden>
@@ -265,8 +266,7 @@
       const next = wrap(radius + distance * 24 * speed / edgeDistance, 1);
       return [x * next / radius, y * next / radius, next];
     }
-    // 半径ではなく面積に比例する値を循環させ、中央への密集を防ぐ。
-    const next = Math.sqrt(wrap(radius * radius + distance * (0.4 + star.depth * 0.19), 1));
+    const next = wrap(radius + distance * (0.4 + star.depth * 0.19), 1);
     return [x * next / radius, y * next / radius, next];
   }
 
@@ -539,6 +539,14 @@
   const startCredit = document.querySelector('.start-credit');
   const countdown = document.querySelector('.countdown');
   let playState = 'waiting';
+  let trainingMode = false;
+  let gameGeneration = 0;
+  const gameTimers = new Set();
+  function gameTimeout(callback, delay) {
+    const id = setTimeout(() => { gameTimers.delete(id); callback(); }, delay);
+    gameTimers.add(id);
+    return id;
+  }
   const comboLabel = document.querySelector('.combo');
   let comboTimer = null;
   const directions = [[0, -1], [-1, 0], [0, 1], [1, 0]];
@@ -712,11 +720,11 @@
     if (combo >= 3) {
       clearTimeout(comboTimer);
       comboLabel.textContent = 'NICE ' + combo + ' combo!';
-      comboTimer = setTimeout(() => { comboLabel.textContent = ''; }, 1500);
+      comboTimer = gameTimeout(() => { comboLabel.textContent = ''; }, 1500);
     }
     startWarp(combo, started, fullClear);
     recordBoard(started);
-    setTimeout(() => {
+    gameTimeout(() => {
       die.classList.remove('clearing');
       stacks.forEach((stack, index) => {
         for (const piece of stack.splice(0, matches[index].length)) piece.element.remove();
@@ -731,6 +739,7 @@
     const moves = stacks.flatMap(stack => stack.map((piece, index) =>
       ({ piece, from: piece.units, to: index + 1 })).filter(move => move.from !== move.to));
     const start = performance.now();
+    const generation = gameGeneration;
     recordBoard(start);
     function resume(now) {
       clearing = false;
@@ -738,7 +747,7 @@
         incoming.start += now - pausedAt;
         arrivalFrame = requestAnimationFrame(advanceArrival);
       } else if (spawnTimer === null) {
-        spawnTimer = setTimeout(spawnPiece, 0);
+        spawnTimer = gameTimeout(spawnPiece, 0);
       }
       flushPendingRotation();
     }
@@ -747,6 +756,7 @@
       return;
     }
     requestAnimationFrame(function slide(now) {
+      if (generation !== gameGeneration) return;
       const progress = Math.max(0, Math.min((now - start) / 90, 1));
       const size = pieceSize();
       for (const { piece, from, to } of moves) {
@@ -775,7 +785,7 @@
         arrivalFrame = null;
         incoming = null;
         clearTimeout(spawnTimer);
-        spawnTimer = setTimeout(spawnPiece, stickingDuration);
+        spawnTimer = gameTimeout(spawnPiece, stickingDuration);
       }
     }
   }
@@ -786,6 +796,12 @@
     const halfScreen = (directions[incoming.direction][0] ? width : height) / 2;
     const distance = size * (stack.length + 1);
     if (distance + size / 2 > halfScreen) {
+      if (trainingMode) {
+        incoming.waitingForSpace = true;
+        positionPiece(incoming, halfScreen + size / 2, size, 0);
+        arrivalFrame = requestAnimationFrame(advanceArrival);
+        return;
+      }
       overflowPiece = incoming;
       overflowPiece.element.classList.add('overflow');
       blinkOverflow(overflowPiece);
@@ -801,12 +817,16 @@
       pendingRotation = null;
       document.documentElement.classList.add('replaying');
       result.hidden = false;
-      setTimeout(() => {
+      gameTimeout(() => {
         retryReady = true;
         startHint.hidden = false;
       }, 3000);
       requestStars();
       return;
+    }
+    if (incoming.waitingForSpace) {
+      incoming.waitingForSpace = false;
+      incoming.start = now;
     }
     const progress = Math.max(0, Math.min((now - incoming.start) / incoming.duration, 1));
     const remaining = (1 - progress) ** 2;
@@ -820,7 +840,7 @@
     incoming = null;
     arrivalFrame = null;
     if (motion === null) matchPieces();
-    spawnTimer = setTimeout(spawnPiece, stickingDuration);
+    spawnTimer = gameTimeout(spawnPiece, stickingDuration);
   }
 
   function spawnPiece() {
@@ -841,6 +861,29 @@
     advanceArrival(incoming.start);
   }
 
+  const modeLabel = document.querySelector('#training-label');
+  let hold = null;
+  function cancelHold() {
+    if (hold) clearTimeout(hold.timer);
+    hold = null;
+  }
+  function beginHold(kind, id) {
+    if (hold || (playState !== 'waiting' && !trainingMode)) return;
+    hold = { kind, id, fired: false, timer: setTimeout(() => {
+      hold.fired = true;
+      gesture = null;
+      if (trainingMode) retryGame(true);
+      else {
+        trainingMode = true;
+        modeLabel.hidden = false;
+        startCountdown();
+      }
+    }, 10000) };
+  }
+  window.addEventListener('blur', () => { cancelHold(); gesture = null; });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { cancelHold(); gesture = null; }
+  });
   let gesture = null;
   function startCountdown() {
     if (playState === 'waiting') rebaseStars();
@@ -869,10 +912,10 @@
         offset: rotationDuration / (readyDuration + goDuration) },
       { transform: 'rotateY(360deg) ' + startingRotation, offset: 1 },
     ], { duration: readyDuration + goDuration });
-    setTimeout(() => {
+    gameTimeout(() => {
       countdown.classList.remove('ready');
       countdown.textContent = 'GO!';
-      setTimeout(() => {
+      gameTimeout(() => {
         countdown.hidden = true;
         countdown.textContent = '';
         playState = 'playing';
@@ -897,6 +940,13 @@
   window.addEventListener('keydown', event => {
     const direction = arrowDirections.get(event.key);
     if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+    if (!event.repeat && !['Alt', 'Control', 'Meta', 'Shift', 'Tab'].includes(event.key)) {
+      beginHold('key', event.code);
+    }
+    if (playState === 'waiting' || (hold?.kind === 'key' && hold.fired)) {
+      event.preventDefault();
+      return;
+    }
     if (gameOver || playState !== 'playing') {
       if (['Alt', 'Control', 'Meta', 'Shift', 'Tab'].includes(event.key)) return;
       event.preventDefault();
@@ -907,14 +957,27 @@
     event.preventDefault();
     if (!event.repeat && gesture === null) requestRotation(...direction);
   });
+  window.addEventListener('keyup', event => {
+    if (hold?.kind !== 'key' || hold.id !== event.code) return;
+    const start = !hold.fired && playState === 'waiting';
+    cancelHold();
+    if (start) activateStart();
+  });
   stage.addEventListener('pointerdown', event => {
     if (gesture || !event.isPrimary || event.button !== 0) return;
+    beginHold('pointer', event.pointerId);
+    stage.setPointerCapture(event.pointerId);
     const starting = playState === 'waiting' || (gameOver && retryReady);
     if (!starting && (playState !== 'playing' || gameOver)) return;
     gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, starting };
     stage.setPointerCapture(event.pointerId);
   });
   stage.addEventListener('pointerup', event => {
+    if (hold?.kind === 'pointer' && hold.id === event.pointerId) {
+      const fired = hold.fired;
+      cancelHold();
+      if (fired) { gesture = null; return; }
+    }
     if (gesture?.id !== event.pointerId) return;
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
@@ -929,6 +992,7 @@
   });
   for (const type of ['pointercancel', 'lostpointercapture']) {
     stage.addEventListener(type, event => {
+      if (hold?.kind === 'pointer' && hold.id === event.pointerId) cancelHold();
       if (gesture?.id === event.pointerId) gesture = null;
     });
   }
@@ -950,7 +1014,12 @@
   const boardObserver = new ResizeObserver(resizeBoard);
   boardObserver.observe(stage);
   boardObserver.observe(ambient);
-  function retryGame() {
+  function retryGame(returnToTitle = false) {
+    gameGeneration++;
+    for (const timer of gameTimers) clearTimeout(timer);
+    gameTimers.clear();
+    for (const animation of die.getAnimations()) animation.cancel();
+    clearing = false;
     retryReady = false;
     clearTimeout(spawnTimer);
     clearTimeout(comboTimer);
@@ -985,7 +1054,16 @@
     result.hidden = true;
     drawStars(performance.now());
     requestStars();
-    startCountdown();
+    if (returnToTitle) {
+      trainingMode = false;
+      playState = 'waiting';
+      gameStartedAt = null;
+      document.documentElement.classList.remove('preplay');
+      countdown.hidden = true;
+      countdown.classList.remove('ready');
+      startLogo.hidden = startCredit.hidden = startHint.hidden = false;
+      modeLabel.hidden = true;
+    } else startCountdown();
   }
   resizeBoard();
   requestStars();
