@@ -309,7 +309,7 @@
   function paintTrail(from, to, opacity) {
     if (from[3] !== to[3]) return;
     const spiraling = from[4] !== undefined || to[4] !== undefined;
-    ctx.strokeStyle = '#c7cfff';
+    ctx.strokeStyle = '#8870ff';
     ctx.lineCap = 'round';
     for (let depth = 0; depth < travel.length; depth++) {
       ctx.globalAlpha = opacity * ((spiraling ? 0.55 : 0.35) + depth * 0.14);
